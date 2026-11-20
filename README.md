@@ -14,11 +14,11 @@ Editor local de clips verticales para campañas, publicado como página estátic
 
 1. Sube el vídeo desde tu dispositivo.
 2. Ajusta inicio, final y encuadre. El clip debe cumplir la duración mínima especificada.
-3. Importa una transcripción con tiempos VTT/SRT o de YouTube y revisa las frases con el audio.
+3. Al cargar un vídeo, ClipLab extrae el audio en el navegador y genera automáticamente una transcripción en español, palabra por palabra y con marcas de tiempo. Puedes sustituirla por un VTT/SRT.
 4. Selecciona una pista o crea una base instrumental en el navegador.
 5. Exporta y revisa el resultado antes de publicarlo.
 
-El editor todavía no transcribe automáticamente vídeos. La exportación usa el formato disponible en el navegador (MP4 o WebM). No publica clips ni garantiza visitas.
+La transcripción automática usa Whisper Tiny mediante Transformers.js y Mediabunny. La primera vez descarga aproximadamente 70 MB del modelo y los guarda en caché. El vídeo y su audio se procesan localmente y no se suben. La precisión debe revisarse, sobre todo en nombres propios, cifras y audio ruidoso. La exportación usa el formato disponible en el navegador (MP4 o WebM). No publica clips ni garantiza visitas.
 
 ## Privacidad
 
