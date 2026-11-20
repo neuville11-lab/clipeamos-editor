@@ -1,18 +1,26 @@
 # ClipLab
 
-Editor de clips verticales de una sola página, sin instalar nada.
+Editor local de clips verticales para campañas, publicado como página estática.
 
-## Privacidad
+## Campañas y briefs
 
-El editor es estático y trabaja con los archivos seleccionados en el propio navegador. No tiene servidor de vídeo ni sube los medios a GitHub. El repositorio público contiene solo el código del editor. No añadas vídeos originales ni exportaciones al repositorio.
+- Crea campañas y cambia entre ellas desde el selector.
+- Importa briefs PDF, DOCX o TXT. PDF.js y Mammoth extraen texto en el navegador; no se envía el archivo a un servidor.
+- La ficha de requisitos guarda el texto extraído y sus campos en el almacenamiento local del navegador. No guarda el archivo binario original.
+- La detección actual usa reglas explícitas para límites, formato, temas, menciones y requisitos. Los campos no reconocidos quedan como «No especificado»; revisa y corrige los resultados antes de trabajar.
+- Los PDF escaneados requieren OCR. La carga de PDF/DOCX necesita conexión para descargar los lectores JavaScript desde sus CDN.
 
-## Uso
+## Edición
 
-1. Abre la página y selecciona un vídeo desde el dispositivo.
-2. Ajusta inicio, final y encuadre. El clip debe durar al menos 10 segundos.
-3. Comprueba la transcripción propuesta con el audio y corrige los subtítulos.
+1. Sube el vídeo desde tu dispositivo.
+2. Ajusta inicio, final y encuadre. El clip debe cumplir la duración mínima especificada.
+3. Importa una transcripción con tiempos VTT/SRT o de YouTube y revisa las frases con el audio.
 4. Selecciona una pista o crea una base instrumental en el navegador.
 5. Exporta y revisa el resultado antes de publicarlo.
 
-La exportación usa el formato disponible en el navegador (MP4 o WebM). La campaña también exige incluir `@reental.co`, música y subtítulos, y cumplir sus demás condiciones. La herramienta no publica clips ni garantiza visitas.
+El editor todavía no transcribe automáticamente vídeos. La exportación usa el formato disponible en el navegador (MP4 o WebM). No publica clips ni garantiza visitas.
+
+## Privacidad
+
+El editor es estático. El vídeo, la música y los documentos se leen localmente en el navegador; el repositorio público contiene solo el código. Las campañas y los textos extraídos se guardan en el almacenamiento local del navegador. No añadas vídeos originales ni exportaciones al repositorio.
 
