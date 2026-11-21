@@ -223,6 +223,40 @@ function renderRules() {
   }
 }
 
+async function extractBriefText(file) {
+  const extension = file.name.split('.').pop().toLowerCase();
+  if (extension === 'txt' || extension === 'md') return file.text();
+  if (extension === 'docx') {
+    if (!window.mammoth?.extractRawText) throw new Error('No se pudo cargar el lector de Word. Comprueba la conexión a Internet e inténtalo de nuevo.');
+    const result = await window.mammoth.extractRawText({ arrayBuffer: await file.arrayBuffer() });
+    return result.value;
+  }
+  if (extension === 'pdf') {
+    const version = '6.5.438';
+    const pdfjs = await import(`https://cdn.jsdelivr.net/npm/pdfjs-dist@${version}/build/pdf.mjs`);
+    pdfjs.GlobalWorkerOptions.workerSrc = `https://cdn.jsdelivr.net/npm/pdfjs-dist@${version}/build/pdf.worker.mjs`;
+    const pdf = await pdfjs.getDocument({ data: await file.arrayBuffer() }).promise;
+    const pages = [];
+    for (let pageNumber = 1; pageNumber <= pdf.numPages; pageNumber += 1) {
+      const page = await pdf.getPage(pageNumber);
+      const content = await page.getTextContent();
+      pages.push(content.items.map((item) => item.str || '').join(' '));
+    }
+    return pages.join('\n\n');
+  }
+  throw new Error('Formato no compatible. Usa PDF, DOCX, TXT o MD.');
+}
+
+function applyBriefText(text, filename) {
+  const cleanText = text.trim();
+  if (!cleanText) throw new Error('No se encontró texto seleccionable. Si el PDF es un escaneo, necesitará OCR.');
+  $('briefText').value = cleanText;
+  localStorage.setItem(keys.brief, cleanText);
+  renderRules();
+  saveCurrentProject(true);
+  toast(`Brief cargado localmente desde ${filename}.`);
+}
+
 function setServiceState(connected, message) {
   const target = $('serviceStatus');
   target.classList.toggle('connected', connected);
@@ -399,14 +433,13 @@ document.addEventListener('DOMContentLoaded', () => {
   $('briefFile').addEventListener('change', async (event) => {
     const file = event.target.files?.[0];
     if (!file) return;
-    if (/\.(txt|md)$/i.test(file.name)) {
-      $('briefText').value = await file.text();
-      localStorage.setItem(keys.brief, $('briefText').value);
-      renderRules();
-      saveCurrentProject(true);
-      toast('Brief cargado. Revisa los requisitos detectados.');
-    } else {
-      toast('Para PDF y DOCX hace falta conectar el servicio de lectura de briefs.');
+    toast('Leyendo el brief en este dispositivo…');
+    try {
+      const text = await extractBriefText(file);
+      applyBriefText(text, file.name);
+    } catch (error) {
+      toast(error.message || 'No se pudo leer el archivo. Puede estar dañado o protegido.');
+    } finally {
       event.target.value = '';
     }
   });
