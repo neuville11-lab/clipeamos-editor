@@ -226,11 +226,7 @@ function renderRules() {
 async function extractBriefText(file) {
   const extension = file.name.split('.').pop().toLowerCase();
   if (extension === 'txt' || extension === 'md') return file.text();
-  if (extension === 'docx') {
-    if (!window.mammoth?.extractRawText) throw new Error('No se pudo cargar el lector de Word. Comprueba la conexión a Internet e inténtalo de nuevo.');
-    const result = await window.mammoth.extractRawText({ arrayBuffer: await file.arrayBuffer() });
-    return result.value;
-  }
+  if (extension === 'docx') return extractDocxText(await file.arrayBuffer());
   if (extension === 'pdf') {
     const version = '6.5.438';
     const pdfjs = await import(`https://cdn.jsdelivr.net/npm/pdfjs-dist@${version}/build/pdf.mjs`);
@@ -245,6 +241,57 @@ async function extractBriefText(file) {
     return pages.join('\n\n');
   }
   throw new Error('Formato no compatible. Usa PDF, DOCX, TXT o MD.');
+}
+
+async function extractDocxText(buffer) {
+  const view = new DataView(buffer);
+  const bytes = new Uint8Array(buffer);
+  const decoder = new TextDecoder();
+  const eocdMin = Math.max(0, bytes.length - 65_557);
+  let eocd = -1;
+  for (let offset = bytes.length - 22; offset >= eocdMin; offset -= 1) {
+    if (view.getUint32(offset, true) === 0x06054b50) { eocd = offset; break; }
+  }
+  if (eocd < 0) throw new Error('El DOCX no parece válido o está dañado.');
+  const entryCount = view.getUint16(eocd + 10, true);
+  let cursor = view.getUint32(eocd + 16, true);
+  let documentEntry = null;
+  for (let index = 0; index < entryCount; index += 1) {
+    if (view.getUint32(cursor, true) !== 0x02014b50) throw new Error('No se pudo abrir el contenido del DOCX.');
+    const method = view.getUint16(cursor + 10, true);
+    const compressedSize = view.getUint32(cursor + 20, true);
+    const fileNameLength = view.getUint16(cursor + 28, true);
+    const extraLength = view.getUint16(cursor + 30, true);
+    const commentLength = view.getUint16(cursor + 32, true);
+    const localOffset = view.getUint32(cursor + 42, true);
+    const path = decoder.decode(bytes.subarray(cursor + 46, cursor + 46 + fileNameLength));
+    if (path === 'word/document.xml') {
+      const localNameLength = view.getUint16(localOffset + 26, true);
+      const localExtraLength = view.getUint16(localOffset + 28, true);
+      const dataOffset = localOffset + 30 + localNameLength + localExtraLength;
+      documentEntry = { method, data: bytes.slice(dataOffset, dataOffset + compressedSize) };
+      break;
+    }
+    cursor += 46 + fileNameLength + extraLength + commentLength;
+  }
+  if (!documentEntry) throw new Error('El DOCX no contiene el texto principal del documento.');
+  let xmlBytes;
+  if (documentEntry.method === 0) xmlBytes = documentEntry.data;
+  else if (documentEntry.method === 8 && 'DecompressionStream' in window) {
+    const stream = new Blob([documentEntry.data]).stream().pipeThrough(new DecompressionStream('deflate-raw'));
+    xmlBytes = new Uint8Array(await new Response(stream).arrayBuffer());
+  } else throw new Error('Este navegador no puede descomprimir este DOCX. Prueba a guardarlo de nuevo como .docx.');
+  const xml = new DOMParser().parseFromString(decoder.decode(xmlBytes), 'application/xml');
+  if (xml.querySelector('parsererror')) throw new Error('No se pudo interpretar el contenido del DOCX.');
+  const namespace = 'http://schemas.openxmlformats.org/wordprocessingml/2006/main';
+  const paragraphs = [...xml.getElementsByTagNameNS(namespace, 'p')];
+  const textOf = (node) => {
+    if (node.namespaceURI === namespace && node.localName === 't') return node.textContent || '';
+    if (node.namespaceURI === namespace && node.localName === 'tab') return '\t';
+    if (node.namespaceURI === namespace && ['br', 'cr'].includes(node.localName)) return '\n';
+    return [...node.childNodes].map(textOf).join('');
+  };
+  return paragraphs.map(textOf).join('\n');
 }
 
 function applyBriefText(text, filename) {
