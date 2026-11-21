@@ -18,7 +18,7 @@ Editor local de clips verticales para campañas, publicado como página estátic
 4. Selecciona una pista o crea una base instrumental en el navegador.
 5. Exporta y revisa el resultado antes de publicarlo.
 
-La transcripción automática usa Whisper Tiny mediante Transformers.js y Mediabunny. La inferencia corre en un Web Worker para mantener la interfaz disponible. La primera vez descarga aproximadamente 70 MB del modelo y los guarda en caché. El vídeo y su audio se procesan localmente y no se suben. La precisión debe revisarse, sobre todo en nombres propios, cifras y audio ruidoso. La exportación usa el formato disponible en el navegador (MP4 o WebM). No publica clips ni garantiza visitas.
+La transcripción automática usa Whisper Base en español mediante Transformers.js y Mediabunny. La inferencia corre en un Web Worker para mantener la interfaz disponible. El modelo Base es mayor que Tiny, pero reconoce mejor el habla; la primera descarga tarda más y queda en caché. Se conservan las marcas de tiempo palabra por palabra que devuelve Whisper; si una respuesta contiene una frase, el editor estima el tiempo de cada palabra dentro de ella. El vídeo y su audio se procesan localmente y no se suben. La precisión debe revisarse, sobre todo en nombres propios, cifras y audio ruidoso. La exportación usa el formato disponible en el navegador (MP4 o WebM). No publica clips ni garantiza visitas.
 
 ## Privacidad
 
