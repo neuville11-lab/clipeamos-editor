@@ -1,0 +1,92 @@
+<!doctype html>
+<html lang="es">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width,initial-scale=1">
+  <meta name="theme-color" content="#f5f4f8">
+  <title>ClipLab Studio</title>
+  <link rel="stylesheet" href="./styles.css">
+</head>
+<body>
+  <div class="app-shell">
+    <aside class="sidebar">
+      <a class="brand" href="#" aria-label="ClipLab Studio, inicio"><span class="brand-mark">cl</span><span>ClipLab<small>STUDIO</small></span></a>
+      <div class="workspace-switch"><span class="workspace-avatar">R</span><span><b>Reental Studio</b><small>Espacio de trabajo</small></span><span class="chevron">⌄</span></div>
+      <nav class="main-nav" aria-label="Navegación principal">
+        <span class="nav-label">CREAR</span>
+        <button class="nav-item active" data-view="editor"><span class="nav-icon">◫</span> Nuevo proyecto</button>
+        <button class="nav-item" data-view="projects"><span class="nav-icon">▦</span> Proyectos</button>
+        <button class="nav-item" data-view="library"><span class="nav-icon">▤</span> Biblioteca</button>
+        <span class="nav-label nav-label-spaced">GESTIONAR</span>
+        <button class="nav-item" data-view="campaigns"><span class="nav-icon">◎</span> Campañas <span class="nav-count">1</span></button>
+        <button class="nav-item" data-view="settings"><span class="nav-icon">⚙</span> Ajustes</button>
+      </nav>
+      <div class="sidebar-bottom">
+        <div class="usage-card"><div class="usage-top"><span>Procesamiento</span><span class="usage-badge">EN PAUSA</span></div><p>Conecta el motor para analizar y exportar vídeos.</p><button id="openSettings" class="text-button">Configurar servicio <span>↗</span></button></div>
+        <button class="profile"><span class="profile-avatar">U</span><span><b>Tu espacio</b><small>Plan personal</small></span><span class="more">···</span></button>
+      </div>
+    </aside>
+
+    <main class="main-area">
+      <header class="topbar"><div class="breadcrumbs"><span>Proyectos</span><span class="slash">/</span><b>Nuevo proyecto</b></div><div class="top-actions"><span class="autosave"><i></i> Guardado local</span><button class="icon-button" aria-label="Notificaciones">♧</button><button class="help-button">Ayuda <span>↗</span></button></div></header>
+      <div class="page-content">
+        <section class="page-heading"><div><div class="overline"><span class="overline-dot"></span> RECORTA LO MEJOR</div><h1>Tu próximo clip empieza aquí<span>.</span></h1><p>Sube el episodio, define la campaña y deja que ClipLab encuentre los momentos que merecen verse.</p></div><button class="secondary-button" id="newProject">＋ <span>Proyecto nuevo</span></button></section>
+
+        <section class="steps" aria-label="Progreso del proyecto">
+          <div class="step current"><span class="step-number">01</span><span>Brief y vídeo</span></div><span class="step-line"></span>
+          <div class="step"><span class="step-number">02</span><span>Analizar</span></div><span class="step-line"></span>
+          <div class="step"><span class="step-number">03</span><span>Editar</span></div><span class="step-line"></span>
+          <div class="step"><span class="step-number">04</span><span>Exportar</span></div>
+        </section>
+
+        <div class="studio-grid">
+          <div class="left-column">
+            <section class="card brief-card">
+              <div class="card-heading"><div class="heading-icon violet">01</div><div><h2>Brief de campaña</h2><p>Las reglas guían la selección de clips y la publicación.</p></div><button class="quiet-button" id="clearBrief">Limpiar</button></div>
+              <div class="brief-body">
+                <label class="field-label" for="briefText">Pega el brief o carga el archivo</label>
+                <textarea id="briefText" placeholder="Pega aquí el brief de Clipeamos. Detectaremos la duración, las menciones y las condiciones de la campaña…"></textarea>
+                <div class="brief-footer"><label class="file-link" for="briefFile"><span>↑</span> Cargar PDF, DOCX o TXT<input id="briefFile" type="file" accept=".pdf,.docx,.txt"></label><span class="privacy-note"><span class="lock">▣</span> Archivo privado del proyecto</span></div>
+              </div>
+              <div class="detected-rules" id="detectedRules" hidden></div>
+            </section>
+
+            <section class="card media-card">
+              <div class="card-heading"><div class="heading-icon orange">02</div><div><h2>Vídeo fuente</h2><p>Sube el episodio completo para transcribirlo y detectar momentos.</p></div><span class="format-tag">MP4 · MOV · WEBM</span></div>
+              <input id="videoFile" type="file" accept="video/mp4,video/quicktime,video/webm" hidden>
+              <div class="upload-zone" id="uploadZone" role="button" tabindex="0" aria-label="Seleccionar vídeo fuente">
+                <div class="upload-icon">↑</div><strong>Suelta el vídeo aquí</strong><span>o <button type="button" class="inline-link" id="browseVideo">búscalo en tu equipo</button></span><small>Los archivos grandes se suben de forma segura cuando el servicio esté conectado.</small>
+              </div>
+              <div class="selected-video" id="selectedVideo" hidden><div class="video-file-icon">▶</div><div class="video-file-info"><b id="videoName">Vídeo seleccionado</b><span id="videoMeta"></span></div><span class="file-check">✓</span><button class="remove-file" id="removeVideo" aria-label="Quitar vídeo">×</button></div>
+            </section>
+
+            <section class="card engine-card">
+              <div class="engine-symbol">✳</div><div class="engine-copy"><b>El motor de ClipLab está esperando conexión</b><span>El análisis, la transcripción y el render se ejecutarán en el backend al conectar el servicio.</span></div><button class="secondary-button compact" id="connectEngine">Configurar motor</button>
+            </section>
+
+            <section class="card moments-card">
+              <div class="card-heading"><div class="heading-icon dark">03</div><div><h2>Momentos sugeridos</h2><p>ClipLab propondrá 3–4 fragmentos que cumplen el mínimo del brief.</p></div><span class="suggestion-count" id="suggestion-count">0 clips</span></div>
+              <div class="empty-moments" id="emptyMoments"><div class="sparkle">✳</div><b>Primero, brief y vídeo</b><span>Después lanzaremos la transcripción y buscaremos ganchos, ideas memorables y picos de conversación.</span><button id="analyzeButton" class="primary-button" disabled>Analizar episodio <span>→</span></button></div>
+              <div class="candidate-list" id="candidateList" hidden></div>
+            </section>
+          </div>
+
+          <aside class="right-column">
+            <section class="card campaign-card"><div class="card-heading slim"><div class="heading-icon violet">◎</div><div><h2>Campaña activa</h2><p>Los clips se preparan según estas reglas.</p></div><button class="edit-icon" aria-label="Editar campaña">↗</button></div><div class="campaign-name"><span class="campaign-dot"></span><b id="campaignName">Nueva campaña</b><span class="platform-chip" id="platformName">TikTok</span></div><div class="campaign-stats"><div><span>Duración mínima</span><b id="minimumDuration">—</b></div><div><span>Visitas por clip</span><b id="minimumViews">—</b></div></div><div class="campaign-tags" id="campaignTags"><span>Sin requisitos detectados</span></div><button class="add-campaign" id="addCampaign">＋ <span>Cargar brief de campaña</span></button></section>
+
+            <section class="card preview-card"><div class="preview-heading"><div><h2>Vista previa</h2><span>Previsualiza un clip seleccionado</span></div><button class="more-button" aria-label="Más opciones">···</button></div><div class="preview-stage" id="previewStage"><div class="preview-placeholder"><span class="play-outline">▶</span><b>Tu clip aparecerá aquí</b><span>Cuando el análisis termine</span></div><video id="previewVideo" playsinline></video><div id="captionPreview" class="caption-preview" hidden><span id="captionWord">Tu subtítulo</span></div><div class="preview-brand">CLIPLAB <span>STUDIO</span></div></div><div class="preview-controls"><span>00:00</span><input type="range" min="0" max="100" value="0" id="previewSeek" aria-label="Posición del clip" disabled><span>00:00</span></div><div class="preview-caption-style"><div><b>Subtítulos</b><span>Palabra activa · contorno alto contraste</span></div><span class="style-swatch">Aa</span></div></section>
+
+            <section class="card outputs-card"><div class="card-heading slim"><div class="heading-icon orange">04</div><div><h2>Salida del clip</h2><p>Formato vertical para redes.</p></div></div><div class="output-row"><span class="output-icon">▯</span><div><b>Vídeo 9:16</b><small>1080 × 1920 · H.264</small></div><span class="output-check">✓</span></div><div class="output-row"><span class="output-icon">♫</span><div><b>Voz y música</b><small>Limpieza de voz · mezcla ajustable</small></div><span class="output-check">✓</span></div><div class="output-row"><span class="output-icon">Aa</span><div><b>Subtítulos animados</b><small>Palabra por palabra</small></div><span class="output-check">✓</span></div><button class="export-button" disabled>Exportar clips <span>↗</span></button></section>
+          </aside>
+        </div>
+        <footer class="page-footer"><span>CLIPLAB STUDIO · BETA</span><span id="footerStatus">Backend sin conectar · no se ha enviado ningún archivo</span></footer>
+      </div>
+    </main>
+  </div>
+
+  <dialog id="serviceDialog" class="service-dialog"><form method="dialog"><button class="dialog-close" aria-label="Cerrar">×</button><div class="overline"><span class="overline-dot"></span> PROCESAMIENTO EN LA NUBE</div><h2>Conecta el backend</h2><p>Configura la URL del servicio para habilitar transcripción, selección automática de momentos y exportación. No pegues aquí claves secretas.</p><label class="field-label" for="apiUrl">URL del servicio</label><input id="apiUrl" type="url" placeholder="https://api.tu-dominio.com" autocomplete="url"><div class="dialog-status" id="serviceStatus"><span class="status-dot"></span> Sin conectar</div><div class="dialog-actions"><button class="secondary-button" value="cancel">Cancelar</button><button class="primary-button" type="button" id="testConnection">Probar conexión</button></div><small class="dialog-footnote">El vídeo solo se enviará al servicio cuando pulses «Analizar episodio» y aceptes la confirmación de subida.</small></form></dialog>
+  <div id="toast" class="toast" role="status" aria-live="polite"></div>
+  <script src="./app.js" defer></script>
+</body>
+</html>
+
