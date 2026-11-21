@@ -69,7 +69,9 @@ async function getTranscriber() {
         'https://cdn.jsdelivr.net/npm/@huggingface/transformers@3.8.1'
       );
       env.allowLocalModels = false;
-      return pipeline('automatic-speech-recognition', 'Xenova/whisper-tiny', {
+      // Base is noticeably more reliable than Tiny for Spanish speech and
+      // names, while remaining practical for local browser inference.
+      return pipeline('automatic-speech-recognition', 'Xenova/whisper-base', {
         dtype: 'q8',
         progress_callback: (info) => {
           if (info.status === 'progress' && Number.isFinite(info.progress)) {
