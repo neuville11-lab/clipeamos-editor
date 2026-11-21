@@ -18,7 +18,7 @@
         <button class="nav-item" data-view="projects"><span class="nav-icon">▦</span> Proyectos</button>
         <button class="nav-item" data-view="library"><span class="nav-icon">▤</span> Biblioteca</button>
         <span class="nav-label nav-label-spaced">GESTIONAR</span>
-        <button class="nav-item" data-view="campaigns"><span class="nav-icon">◎</span> Campañas <span class="nav-count">1</span></button>
+        <button class="nav-item" data-view="campaigns"><span class="nav-icon">◎</span> Campañas <span class="nav-count" id="campaignCount">0</span></button>
         <button class="nav-item" data-view="settings"><span class="nav-icon">⚙</span> Ajustes</button>
       </nav>
       <div class="sidebar-bottom">
@@ -30,8 +30,10 @@
     <main class="main-area">
       <header class="topbar"><div class="breadcrumbs"><span>Proyectos</span><span class="slash">/</span><b>Nuevo proyecto</b></div><div class="top-actions"><span class="autosave"><i></i> Guardado local</span><button class="icon-button" aria-label="Notificaciones">♧</button><button class="help-button">Ayuda <span>↗</span></button></div></header>
       <div class="page-content">
-        <section class="page-heading"><div><div class="overline"><span class="overline-dot"></span> RECORTA LO MEJOR</div><h1>Tu próximo clip empieza aquí<span>.</span></h1><p>Sube el episodio, define la campaña y deja que ClipLab encuentre los momentos que merecen verse.</p></div><button class="secondary-button" id="newProject">＋ <span>Proyecto nuevo</span></button></section>
+        <div id="editorView">
+        <section class="page-heading"><div><div class="overline"><span class="overline-dot"></span> RECORTA LO MEJOR</div><h1>Tu próximo clip empieza aquí<span>.</span></h1><p>Sube el episodio, define la campaña y deja que ClipLab encuentre los momentos que merecen verse.</p></div><div class="heading-actions"><button class="secondary-button" id="saveProject">Guardar proyecto</button><button class="secondary-button" id="newProject">＋ <span>Proyecto nuevo</span></button></div></section>
 
+        <div class="project-name-row"><label for="projectNameInput">Nombre del proyecto</label><input id="projectNameInput" class="section-input" placeholder="Ej. Podcast Reental · episodio 12"></div>
         <section class="steps" aria-label="Progreso del proyecto">
           <div class="step current"><span class="step-number">01</span><span>Brief y vídeo</span></div><span class="step-line"></span>
           <div class="step"><span class="step-number">02</span><span>Analizar</span></div><span class="step-line"></span>
@@ -79,6 +81,8 @@
             <section class="card outputs-card"><div class="card-heading slim"><div class="heading-icon orange">04</div><div><h2>Salida del clip</h2><p>Formato vertical para redes.</p></div></div><div class="output-row"><span class="output-icon">▯</span><div><b>Vídeo 9:16</b><small>1080 × 1920 · H.264</small></div><span class="output-check">✓</span></div><div class="output-row"><span class="output-icon">♫</span><div><b>Voz y música</b><small>Limpieza de voz · mezcla ajustable</small></div><span class="output-check">✓</span></div><div class="output-row"><span class="output-icon">Aa</span><div><b>Subtítulos animados</b><small>Palabra por palabra</small></div><span class="output-check">✓</span></div><button class="export-button" disabled>Exportar clips <span>↗</span></button></section>
           </aside>
         </div>
+        </div>
+        <section id="sectionView" class="section-view" hidden></section>
         <footer class="page-footer"><span>CLIPLAB STUDIO · BETA</span><span id="footerStatus">Backend sin conectar · no se ha enviado ningún archivo</span></footer>
       </div>
     </main>
