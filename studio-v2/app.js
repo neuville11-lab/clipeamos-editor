@@ -136,6 +136,7 @@ function invalidateVoiceover() {
   state.voiceUrl = null; $('voicePreview').removeAttribute('src'); $('voicePreview').hidden = true;
   state.voiceWords = [];
   updatePreviewPlaybackButton();
+  $('voiceStatus').textContent = state.previewRange ? 'El texto o la voz cambiaron. Genera la narración de nuevo para previsualizarla.' : 'Selecciona un clip para preparar la narración.';
   updateExportState(state.audioMode === 'voice' ? 'El texto o la voz cambiaron. Genera la narración de nuevo antes de exportar.' : 'Se conservará el audio original del vídeo.');
 }
 
