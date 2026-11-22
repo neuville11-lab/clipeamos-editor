@@ -8,4 +8,9 @@
 *.m4a
 exports/
 output/
+.env
+.env.*
+!.env.example
+__pycache__/
+*.py[cod]
 
