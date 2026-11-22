@@ -4,6 +4,118 @@ const readStore = (key, fallback) => { try { return JSON.parse(localStorage.getI
 const state = { file: null, videoUrl: null, api: localStorage.getItem(keys.api) || '', job: null, pollTimer: null, view: 'editor', projectId: null, projects: Array.isArray(readStore(keys.projects, [])) ? readStore(keys.projects, []) : [], campaigns: Array.isArray(readStore(keys.campaigns, [])) ? readStore(keys.campaigns, []) : [], assets: [], words: [], previewRange: null, transcriptionId: 0, prefs: readStore(keys.prefs, { model: 'base', language: 'es', diarization: false, denoise: false, music: true }) };
 let asrWorker = null;
 let asrPending = null;
+let exportRecorder = null;
+let exportTracks = [];
+
+function updateExportState(message) {
+  const button = $('exportClip');
+  if (!button) return;
+  button.disabled = !state.file || !state.previewRange || !Number.isFinite(state.previewRange.end) || state.previewRange.end <= state.previewRange.start || !window.MediaRecorder;
+  if (message) $('exportStatus').textContent = message;
+}
+
+function applyFraming() {
+  const video = $('previewVideo');
+  if (!video || !$('cropX')) return;
+  const x = Number($('cropX').value);
+  const zoom = Number($('cropZoom').value) / 100;
+  $('cropXValue').textContent = `${x}%`;
+  $('cropZoomValue').textContent = `${Math.round(zoom * 100)}%`;
+  video.style.objectPosition = `${x}% 50%`;
+  video.style.transform = `scale(${zoom})`;
+  video.style.transformOrigin = `${x}% 50%`;
+  const mask = $('previewMask');
+  const enabled = $('hideCam').checked;
+  $('maskSettings').hidden = !enabled;
+  mask.hidden = !enabled;
+  mask.className = `preview-mask ${$('maskPosition').value} ${$('maskStyle').value}`;
+  mask.style.width = `${$('maskSize').value}%`;
+  $('maskSizeValue').textContent = `${$('maskSize').value}%`;
+}
+
+function drawExportFrame(ctx, video, width, height) {
+  if (video.readyState < 2 || !video.videoWidth || !video.videoHeight) return;
+  const targetAspect = width / height;
+  const zoom = Number($('cropZoom').value) / 100;
+  let sw, sh;
+  if (video.videoWidth / video.videoHeight > targetAspect) {
+    sh = video.videoHeight / zoom;
+    sw = sh * targetAspect;
+  } else {
+    sw = video.videoWidth / zoom;
+    sh = sw / targetAspect;
+  }
+  const maxX = Math.max(0, video.videoWidth - sw);
+  const sx = maxX * Number($('cropX').value) / 100;
+  const sy = Math.max(0, (video.videoHeight - sh) / 2);
+  ctx.clearRect(0, 0, width, height);
+  ctx.drawImage(video, sx, sy, sw, sh, 0, 0, width, height);
+  if ($('hideCam').checked) {
+    const size = Number($('maskSize').value) / 100 * width;
+    const mh = size * 9 / 16;
+    const position = $('maskPosition').value;
+    const left = position.endsWith('right') ? width - size - width * .05 : width * .05;
+    const top = position.startsWith('bottom') ? height - mh - height * .05 : height * .05;
+    if ($('maskStyle').value === 'cover') {
+      ctx.fillStyle = '#181720'; ctx.fillRect(left, top, size, mh);
+    } else {
+      ctx.save(); ctx.beginPath(); ctx.rect(left, top, size, mh); ctx.clip();
+      ctx.filter = 'blur(18px)'; ctx.drawImage(video, sx, sy, sw, sh, 0, 0, width, height); ctx.restore();
+      ctx.filter = 'none';
+    }
+  }
+  const active = $('captionWord').textContent.trim();
+  if (active) {
+    ctx.save(); ctx.font = '800 58px Arial, sans-serif'; ctx.textAlign = 'center'; ctx.textBaseline = 'middle';
+    ctx.lineJoin = 'round'; ctx.lineWidth = 9; ctx.strokeStyle = '#101018'; ctx.fillStyle = '#d6ff73';
+    const words = active.split(/\s+/); const line = words.join(' ');
+    const maxWidth = width * .84;
+    if (ctx.measureText(line).width <= maxWidth) { ctx.strokeText(line, width / 2, height * .70, maxWidth); ctx.fillText(line, width / 2, height * .70, maxWidth); }
+    else { const mid = Math.ceil(words.length / 2); ctx.strokeText(words.slice(0, mid).join(' '), width / 2, height * .68, maxWidth); ctx.fillText(words.slice(0, mid).join(' '), width / 2, height * .68, maxWidth); ctx.strokeText(words.slice(mid).join(' '), width / 2, height * .735, maxWidth); ctx.fillText(words.slice(mid).join(' '), width / 2, height * .735, maxWidth); }
+    ctx.restore();
+  }
+}
+
+async function exportSelectedClip() {
+  if (exportRecorder && exportRecorder.state !== 'inactive') { exportRecorder.stop(); return; }
+  const video = $('previewVideo');
+  const range = state.previewRange;
+  if (!state.file || !range || !video.videoWidth) return toast('Selecciona un fragmento y espera a que cargue el vídeo.');
+  const canvas = document.createElement('canvas'); canvas.width = 720; canvas.height = 1280;
+  const ctx = canvas.getContext('2d');
+  const canvasStream = canvas.captureStream(30);
+  let audioTracks = [];
+  try { audioTracks = video.captureStream?.().getAudioTracks() || []; } catch {}
+  const stream = new MediaStream([...canvasStream.getVideoTracks(), ...audioTracks]);
+  const types = ['video/mp4;codecs=avc1.42E01E,mp4a.40.2', 'video/mp4', 'video/webm;codecs=vp9,opus', 'video/webm;codecs=vp8,opus', 'video/webm'];
+  const mimeType = types.find((type) => MediaRecorder.isTypeSupported(type));
+  if (!mimeType) { stream.getTracks().forEach((track) => track.stop()); return toast('Este navegador no ofrece un formato de grabación compatible.'); }
+  const chunks = [];
+  try { exportRecorder = new MediaRecorder(stream, { mimeType, videoBitsPerSecond: 5_000_000 }); }
+  catch (error) { stream.getTracks().forEach((track) => track.stop()); return toast(`No se pudo iniciar la exportación: ${error.message}`); }
+  exportTracks = stream.getTracks();
+  exportRecorder.ondataavailable = (event) => { if (event.data.size) chunks.push(event.data); };
+  exportRecorder.onstop = () => {
+    const blob = new Blob(chunks, { type: mimeType });
+    const url = URL.createObjectURL(blob); const link = document.createElement('a');
+    link.href = url; link.download = `cliplab-clip-${Date.now()}.${mimeType.includes('mp4') ? 'mp4' : 'webm'}`;
+    link.click(); setTimeout(() => URL.revokeObjectURL(url), 30_000);
+    exportTracks.forEach((track) => track.stop()); exportTracks = []; exportRecorder = null;
+    video.pause(); updateExportState(`Exportado (${mimeType.includes('mp4') ? 'MP4' : 'WebM'})${audioTracks.length ? ' con audio original' : ' · sin pista de audio en este navegador'}.`);
+    $('exportClip').innerHTML = 'Exportar clip <span>↗</span>';
+  };
+  await new Promise((resolve) => { const done = () => resolve(); video.addEventListener('seeked', done, { once: true }); video.currentTime = range.start; if (Math.abs(video.currentTime - range.start) < .02) resolve(); });
+  updateExportState(audioTracks.length ? 'Grabando el fragmento con su audio original…' : 'Grabando el fragmento. Este navegador no permite capturar el audio original.');
+  $('exportClip').textContent = 'Detener exportación'; exportRecorder.start(250);
+  const frame = () => {
+    if (!exportRecorder || exportRecorder.state === 'inactive') return;
+    drawExportFrame(ctx, video, canvas.width, canvas.height);
+    if (video.currentTime >= range.end || video.ended) { exportRecorder.stop(); return; }
+    requestAnimationFrame(frame);
+  };
+  try { await video.play(); requestAnimationFrame(frame); }
+  catch (error) { exportRecorder.stop(); toast(`No se pudo reproducir el vídeo para exportar: ${error.message}`); }
+}
 
 function toast(message) {
   const node = $('toast');
@@ -360,6 +472,7 @@ function selectVideo(file) {
   state.file = file;
   state.words = [];
   state.previewRange = null;
+  updateExportState('Transcribe el vídeo y selecciona un momento para preparar la exportación.');
   addLibraryFiles([file]);
   if (state.videoUrl) URL.revokeObjectURL(state.videoUrl);
   state.videoUrl = URL.createObjectURL(file);
@@ -382,6 +495,7 @@ function resetVideo() {
   state.words = [];
   state.previewRange = null;
   state.file = null;
+  updateExportState('Sube un vídeo y selecciona un momento para exportar.');
   if (state.videoUrl) URL.revokeObjectURL(state.videoUrl);
   state.videoUrl = null;
   $('videoFile').value = '';
@@ -633,8 +747,9 @@ function renderCandidates(candidates) {
     meta.append(range, score); copy.append(title, reason, meta);
     const use = document.createElement('button'); use.className = 'candidate-use'; use.textContent = 'Previsualizar';
     use.addEventListener('click', () => {
-      const preview = candidate.preview_url ? new URL(candidate.preview_url, `${state.api}/`).href : state.videoUrl;
+      const preview = state.videoUrl || (candidate.preview_url ? new URL(candidate.preview_url, `${state.api}/`).href : null);
       state.previewRange = { start: Number(candidate.start_time) || 0, end: Number(candidate.end_time) || 0 };
+      updateExportState('Fragmento seleccionado. Puedes ajustar el encuadre y exportarlo en vertical.');
       if (preview) { $('previewVideo').src = preview; $('previewVideo').currentTime = state.previewRange.start; $('previewStage').classList.add('has-video'); }
       syncCaption();
       $('captionPreview').hidden = false;
@@ -773,9 +888,12 @@ document.addEventListener('DOMContentLoaded', () => {
   ['ideaCategory', 'ideaProblem', 'ideaNotes'].forEach((id) => $(id).addEventListener('change', () => {
     localStorage.setItem(keys.gtaIdea, JSON.stringify({ category: $('ideaCategory').value, question: $('ideaProblem').value, notes: $('ideaNotes').value, date: new Date().toISOString().slice(0, 10) }));
   }));
-  $('previewVideo').addEventListener('loadedmetadata', () => { $('previewSeek').max = $('previewVideo').duration || 0; if (state.words.length) suggestLocalMoments(); });
+  $('previewVideo').addEventListener('loadedmetadata', () => { $('previewSeek').max = $('previewVideo').duration || 0; applyFraming(); if (state.words.length) suggestLocalMoments(); });
   $('previewVideo').addEventListener('timeupdate', () => { $('previewSeek').value = $('previewVideo').currentTime; syncCaption(); });
+  ['cropX', 'cropZoom', 'hideCam', 'maskPosition', 'maskStyle', 'maskSize'].forEach((id) => $(id).addEventListener('input', applyFraming));
+  $('exportClip').addEventListener('click', exportSelectedClip);
   $('previewSeek').addEventListener('input', () => { $('previewVideo').currentTime = Number($('previewSeek').value); });
+  updateExportState(); applyFraming();
   $('saveProject').addEventListener('click', () => saveCurrentProject());
   $('newProject').addEventListener('click', () => { if (window.confirm('¿Empezar un proyecto nuevo? El borrador actual se conserva en Proyectos.')) { saveCurrentProject(true); resetProject(); toast('Proyecto nuevo listo.'); } });
   $('addCampaign')?.addEventListener('click', () => switchView('campaigns'));
