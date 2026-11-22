@@ -14,11 +14,11 @@ Editor local de clips verticales para campañas, publicado como página estátic
 
 1. Sube el vídeo desde tu dispositivo.
 2. Ajusta inicio, final y encuadre. El clip debe cumplir la duración mínima especificada.
-3. Al cargar un vídeo, ClipLab extrae el audio en el navegador y genera automáticamente una transcripción en español, palabra por palabra y con marcas de tiempo. Puedes sustituirla por un VTT/SRT.
+3. La versión local transcribe en el navegador. Studio v2 envía el vídeo al backend solo cuando configuras la URL del servicio e inicias el análisis.
 4. Selecciona una pista o crea una base instrumental en el navegador.
 5. Exporta y revisa el resultado antes de publicarlo.
 
-La transcripción automática usa Whisper Base en español mediante Transformers.js y Mediabunny. La inferencia corre en un Web Worker para mantener la interfaz disponible. El modelo Base es mayor que Tiny, pero reconoce mejor el habla; la primera descarga tarda más y queda en caché. Se conservan las marcas de tiempo palabra por palabra que devuelve Whisper; si una respuesta contiene una frase, el editor estima el tiempo de cada palabra dentro de ella. El vídeo y su audio se procesan localmente y no se suben. La precisión debe revisarse, sobre todo en nombres propios, cifras y audio ruidoso. La exportación usa el formato disponible en el navegador (MP4 o WebM). No publica clips ni garantiza visitas.
+La transcripción local usa Whisper Base mediante Transformers.js y Mediabunny. Studio v2 incluye además un backend FastAPI con faster-whisper, tiempos por palabra y sugerencias de cortes. Consulta [backend/README.md](backend/README.md) para desplegarlo. Revisa nombres, cifras y audio ruidoso. La exportación final en Studio v2 sigue pendiente de integración.
 
 ## Privacidad
 

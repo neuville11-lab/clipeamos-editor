@@ -1,7 +1,7 @@
 const $ = (id) => document.getElementById(id);
 const keys = { brief: 'cliplab_studio_brief_v2', api: 'cliplab_studio_api_v2', projects: 'cliplab_studio_projects_v2', campaigns: 'cliplab_studio_campaigns_v2', prefs: 'cliplab_studio_prefs_v2' };
 const readStore = (key, fallback) => { try { return JSON.parse(localStorage.getItem(key)) ?? fallback; } catch { return fallback; } };
-const state = { file: null, videoUrl: null, api: localStorage.getItem(keys.api) || '', job: null, pollTimer: null, view: 'editor', projectId: null, projects: Array.isArray(readStore(keys.projects, [])) ? readStore(keys.projects, []) : [], campaigns: Array.isArray(readStore(keys.campaigns, [])) ? readStore(keys.campaigns, []) : [], assets: [], prefs: readStore(keys.prefs, { model: 'base', language: 'es', diarization: false, denoise: false, music: true }) };
+const state = { file: null, videoUrl: null, api: localStorage.getItem(keys.api) || '', job: null, pollTimer: null, view: 'editor', projectId: null, projects: Array.isArray(readStore(keys.projects, [])) ? readStore(keys.projects, []) : [], campaigns: Array.isArray(readStore(keys.campaigns, [])) ? readStore(keys.campaigns, []) : [], assets: [], words: [], previewRange: null, prefs: readStore(keys.prefs, { model: 'base', language: 'es', diarization: false, denoise: false, music: true }) };
 
 function toast(message) {
   const node = $('toast');
@@ -384,12 +384,14 @@ function showJob(job) {
   if (job.status === 'failed') { toast(job.error || 'El análisis no se pudo completar.'); state.job = null; $('analyzeButton').disabled = !state.api || !state.file; $('analyzeButton').textContent = 'Reintentar análisis'; return; }
   if (job.status === 'completed') {
     state.job = null;
+    state.words = job.words || [];
     $('analyzeButton').disabled = false;
     $('analyzeButton').textContent = 'Analizar otra vez';
     renderCandidates(job.candidates || []);
     $('suggestion-count').textContent = `${job.candidates?.length || 0} clips`;
     $('footerStatus').textContent = 'Análisis completado · revisa los momentos sugeridos';
-    toast('Análisis completado.');
+    if (state.words.length) toast(`Transcripción lista · ${state.words.length.toLocaleString('es-ES')} palabras con tiempos.`);
+    else toast('Análisis completado.');
     return;
   }
   clearTimeout(state.pollTimer);
@@ -419,13 +421,33 @@ function renderCandidates(candidates) {
     const use = document.createElement('button'); use.className = 'candidate-use'; use.textContent = 'Previsualizar';
     use.addEventListener('click', () => {
       const preview = candidate.preview_url ? new URL(candidate.preview_url, `${state.api}/`).href : state.videoUrl;
-      if (preview) { $('previewVideo').src = preview; $('previewVideo').currentTime = Number(candidate.start_time) || 0; $('previewStage').classList.add('has-video'); }
-      $('captionWord').textContent = candidate.hook || candidate.title || 'Clip seleccionado';
+      state.previewRange = { start: Number(candidate.start_time) || 0, end: Number(candidate.end_time) || 0 };
+      if (preview) { $('previewVideo').src = preview; $('previewVideo').currentTime = state.previewRange.start; $('previewStage').classList.add('has-video'); }
+      syncCaption();
       $('captionPreview').hidden = false;
       toast(`Previsualizando el momento ${index + 1}.`);
     });
     row.append(rank, copy, use); list.append(row);
   });
+}
+
+function syncCaption() {
+  const video = $('previewVideo');
+  if (!state.words.length || !state.previewRange || !video) return;
+  const visible = state.words.filter((word) => word.start >= state.previewRange.start && word.start < state.previewRange.end);
+  const index = visible.findIndex((word) => video.currentTime >= word.start && video.currentTime < word.end);
+  const active = index >= 0 ? index : visible.findIndex((word) => word.start > video.currentTime);
+  if (active < 0) return;
+  const from = Math.max(0, active - 2);
+  const phrase = visible.slice(from, Math.min(visible.length, from + 5));
+  const host = $('captionWord');
+  host.replaceChildren(...phrase.map((item, offset) => {
+    const span = document.createElement('span');
+    span.textContent = `${item.word}${offset < phrase.length - 1 ? ' ' : ''}`;
+    span.style.opacity = from + offset === active ? '1' : '.72';
+    span.style.textDecoration = from + offset === active ? 'underline' : 'none';
+    return span;
+  }));
 }
 
 async function pollJob() {
@@ -505,7 +527,7 @@ document.addEventListener('DOMContentLoaded', () => {
   $('serviceDialog').querySelector('.dialog-close').addEventListener('click', () => $('serviceDialog').close());
   $('analyzeButton').addEventListener('click', startAnalysis);
   $('previewVideo').addEventListener('loadedmetadata', () => { $('previewSeek').max = $('previewVideo').duration || 0; });
-  $('previewVideo').addEventListener('timeupdate', () => { $('previewSeek').value = $('previewVideo').currentTime; });
+  $('previewVideo').addEventListener('timeupdate', () => { $('previewSeek').value = $('previewVideo').currentTime; syncCaption(); });
   $('previewSeek').addEventListener('input', () => { $('previewVideo').currentTime = Number($('previewSeek').value); });
   $('saveProject').addEventListener('click', () => saveCurrentProject());
   $('newProject').addEventListener('click', () => { if (window.confirm('¿Empezar un proyecto nuevo? El borrador actual se conserva en Proyectos.')) { saveCurrentProject(true); resetProject(); toast('Proyecto nuevo listo.'); } });
