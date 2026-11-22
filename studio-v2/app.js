@@ -18,10 +18,12 @@ function applyFraming() {
   const video = $('previewVideo');
   if (!video || !$('cropX')) return;
   const x = Number($('cropX').value);
+  const top = Number($('cropTop').value);
   const zoom = Number($('cropZoom').value) / 100;
+  $('cropTopValue').textContent = `${top}%`;
   $('cropXValue').textContent = `${x}%`;
   $('cropZoomValue').textContent = `${Math.round(zoom * 100)}%`;
-  video.style.objectPosition = `${x}% 50%`;
+  video.style.objectPosition = `${x}% ${Math.min(100, 50 + top * 1.25)}%`;
   video.style.transform = `scale(${zoom})`;
   video.style.transformOrigin = `${x}% 50%`;
   const mask = $('previewMask');
@@ -37,9 +39,11 @@ function drawExportFrame(ctx, video, width, height) {
   if (video.readyState < 2 || !video.videoWidth || !video.videoHeight) return;
   const targetAspect = width / height;
   const zoom = Number($('cropZoom').value) / 100;
+  const cutTop = video.videoHeight * Number($('cropTop').value) / 100;
+  const visibleHeight = video.videoHeight - cutTop;
   let sw, sh;
   if (video.videoWidth / video.videoHeight > targetAspect) {
-    sh = video.videoHeight / zoom;
+    sh = visibleHeight / zoom;
     sw = sh * targetAspect;
   } else {
     sw = video.videoWidth / zoom;
@@ -47,7 +51,7 @@ function drawExportFrame(ctx, video, width, height) {
   }
   const maxX = Math.max(0, video.videoWidth - sw);
   const sx = maxX * Number($('cropX').value) / 100;
-  const sy = Math.max(0, (video.videoHeight - sh) / 2);
+  const sy = cutTop + Math.max(0, (visibleHeight - sh) / 2);
   ctx.clearRect(0, 0, width, height);
   ctx.drawImage(video, sx, sy, sw, sh, 0, 0, width, height);
   if ($('hideCam').checked) {
@@ -890,7 +894,7 @@ document.addEventListener('DOMContentLoaded', () => {
   }));
   $('previewVideo').addEventListener('loadedmetadata', () => { $('previewSeek').max = $('previewVideo').duration || 0; applyFraming(); if (state.words.length) suggestLocalMoments(); });
   $('previewVideo').addEventListener('timeupdate', () => { $('previewSeek').value = $('previewVideo').currentTime; syncCaption(); });
-  ['cropX', 'cropZoom', 'hideCam', 'maskPosition', 'maskStyle', 'maskSize'].forEach((id) => $(id).addEventListener('input', applyFraming));
+  ['cropTop', 'cropX', 'cropZoom', 'hideCam', 'maskPosition', 'maskStyle', 'maskSize'].forEach((id) => $(id).addEventListener('input', applyFraming));
   $('exportClip').addEventListener('click', exportSelectedClip);
   $('previewSeek').addEventListener('input', () => { $('previewVideo').currentTime = Number($('previewSeek').value); });
   updateExportState(); applyFraming();
