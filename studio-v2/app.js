@@ -1,16 +1,18 @@
 const $ = (id) => document.getElementById(id);
 const keys = { brief: 'cliplab_studio_brief_v2', api: 'cliplab_studio_api_v2', projects: 'cliplab_studio_projects_v2', campaigns: 'cliplab_studio_campaigns_v2', prefs: 'cliplab_studio_prefs_v3', gtaIdea: 'cliplab_gta6_daily_idea', goal: 'cliplab_goal_query_v1', youtube: 'cliplab_youtube_reference_v1' };
 const readStore = (key, fallback) => { try { return JSON.parse(localStorage.getItem(key)) ?? fallback; } catch { return fallback; } };
-const state = { file: null, videoUrl: null, api: localStorage.getItem(keys.api) || '', job: null, pollTimer: null, view: 'editor', projectId: null, projects: Array.isArray(readStore(keys.projects, [])) ? readStore(keys.projects, []) : [], campaigns: Array.isArray(readStore(keys.campaigns, [])) ? readStore(keys.campaigns, []) : [], assets: [], words: [], previewRange: null, transcriptionId: 0, prefs: readStore(keys.prefs, { model: 'small', language: 'es', diarization: false, denoise: false, music: true }) };
+const state = { file: null, videoUrl: null, voiceUrl: null, voiceWords: [], audioMode: 'voice', api: localStorage.getItem(keys.api) || '', job: null, pollTimer: null, view: 'editor', projectId: null, projects: Array.isArray(readStore(keys.projects, [])) ? readStore(keys.projects, []) : [], campaigns: Array.isArray(readStore(keys.campaigns, [])) ? readStore(keys.campaigns, []) : [], assets: [], words: [], previewRange: null, transcriptionId: 0, ttsId: 0, prefs: readStore(keys.prefs, { model: 'small', language: 'es', diarization: false, denoise: false, music: true }) };
 let asrWorker = null;
 let asrPending = null;
+let ttsWorker = null;
+let ttsPending = null;
 let exportRecorder = null;
 let exportTracks = [];
 
 function updateExportState(message) {
   const button = $('exportClip');
   if (!button) return;
-  button.disabled = !state.file || !state.previewRange || !Number.isFinite(state.previewRange.end) || state.previewRange.end <= state.previewRange.start || !window.MediaRecorder;
+  button.disabled = !state.file || !state.previewRange || !Number.isFinite(state.previewRange.end) || state.previewRange.end <= state.previewRange.start || !window.MediaRecorder || (state.audioMode === 'voice' && !state.voiceUrl);
   if (message) $('exportStatus').textContent = message;
 }
 
@@ -87,6 +89,81 @@ function updatePreviewCanvas() {
   drawExportFrame(canvas.getContext('2d'), video, canvas.width, canvas.height, false, false);
 }
 
+function getTtsWorker() {
+  if (ttsWorker) return ttsWorker;
+  ttsWorker = new Worker(new URL('../tts-worker.js?v=voice-1', location.href), { type: 'module' });
+  ttsWorker.onmessage = ({ data }) => {
+    if (!ttsPending || data.id !== ttsPending.id) return;
+    if (data.type === 'progress') { $('voiceStatus').textContent = Number.isFinite(data.progress) ? `Descargando voz · ${Math.round(data.progress)}%` : (data.message || 'Generando voz…'); return; }
+    const pending = ttsPending; ttsPending = null;
+    if (data.type === 'result') pending.resolve(data);
+    else pending.reject(new Error(data.message || 'No se pudo generar la narración.'));
+  };
+  ttsWorker.onerror = (event) => { if (ttsPending) { ttsPending.reject(new Error(event.message || 'Falló el generador de voz.')); ttsPending = null; } };
+  return ttsWorker;
+}
+
+function floatAudioToWav(audio, sampleRate) {
+  const buffer = new ArrayBuffer(44 + audio.length * 2);
+  const view = new DataView(buffer);
+  const write = (offset, value) => [...value].forEach((character, index) => view.setUint8(offset + index, character.charCodeAt(0)));
+  write(0, 'RIFF'); view.setUint32(4, 36 + audio.length * 2, true); write(8, 'WAVE'); write(12, 'fmt ');
+  view.setUint32(16, 16, true); view.setUint16(20, 1, true); view.setUint16(22, 1, true);
+  view.setUint32(24, sampleRate, true); view.setUint32(28, sampleRate * 2, true); view.setUint16(32, 2, true); view.setUint16(34, 16, true);
+  write(36, 'data'); view.setUint32(40, audio.length * 2, true);
+  for (let i = 0; i < audio.length; i++) { const sample = Math.max(-1, Math.min(1, audio[i])); view.setInt16(44 + i * 2, sample < 0 ? sample * 32768 : sample * 32767, true); }
+  return new Blob([buffer], { type: 'audio/wav' });
+}
+
+function refreshAudioMode() {
+  state.audioMode = $('audioMode').value;
+  const voiceMode = state.audioMode === 'voice';
+  $('audioOutputName').textContent = voiceMode ? 'Narración generada' : 'Audio original';
+  $('audioOutputDetail').textContent = voiceMode ? 'El audio original quedará silenciado' : 'Se conserva la pista del gameplay';
+  $('generateVoice').disabled = Boolean(ttsPending) || !state.previewRange || !$('voiceText').value.trim();
+  syncCaption();
+  updateExportState(voiceMode ? (state.voiceUrl ? 'Narración lista. Se exportará sin el audio original.' : 'Selecciona un clip, revisa el texto y genera una voz antes de exportar.') : 'Se conservará el audio original del vídeo.');
+}
+
+function invalidateVoiceover() {
+  if (state.voiceUrl) URL.revokeObjectURL(state.voiceUrl);
+  state.voiceUrl = null; $('voicePreview').removeAttribute('src'); $('voicePreview').hidden = true;
+  state.voiceWords = [];
+  updateExportState(state.audioMode === 'voice' ? 'El texto o la voz cambiaron. Genera la narración de nuevo antes de exportar.' : 'Se conservará el audio original del vídeo.');
+}
+
+async function generateVoiceover() {
+  const text = $('voiceText').value.trim();
+  if (!state.previewRange) return toast('Selecciona un clip antes de generar la voz.');
+  if (!text) return toast('No hay texto para narrar. Comprueba la transcripción o escribe el guion.');
+  const id = ++state.ttsId;
+  $('generateVoice').disabled = true; $('voiceStatus').textContent = 'Cargando el modelo local…';
+  try {
+    const worker = getTtsWorker();
+    const result = await new Promise((resolve, reject) => {
+      ttsPending = { id, resolve, reject };
+      worker.postMessage({ type: 'synthesize', id, text, voice: $('voiceChoice').value });
+    });
+    if (id !== state.ttsId) return;
+    if (state.voiceUrl) URL.revokeObjectURL(state.voiceUrl);
+    const wav = floatAudioToWav(result.audio, result.sampleRate);
+    state.voiceUrl = URL.createObjectURL(wav);
+    const duration = result.audio.length / result.sampleRate;
+    const tokens = text.split(/\s+/).filter(Boolean);
+    const weights = tokens.map((word) => Math.max(1, word.replace(/[^\p{L}\p{N}]/gu, '').length));
+    const totalWeight = weights.reduce((sum, weight) => sum + weight, 0) || 1;
+    let cursor = 0;
+    state.voiceWords = tokens.map((word, index) => { const start = cursor; cursor += duration * weights[index] / totalWeight; return { word, start, end: index === tokens.length - 1 ? duration : cursor }; });
+    $('voicePreview').src = state.voiceUrl; $('voicePreview').hidden = false; $('voicePreview').load();
+    $('voiceStatus').textContent = 'Voz generada. Escúchala y edita el texto si quieres cambiarla.';
+    syncCaption();
+    updateExportState('Narración lista. Se exportará sin el audio original.');
+  } catch (error) {
+    $('voiceStatus').textContent = error.message || 'No se pudo generar la voz.';
+    toast(error.message || 'No se pudo generar la narración.');
+  } finally { $('generateVoice').disabled = Boolean(ttsPending) || !state.previewRange || !$('voiceText').value.trim(); }
+}
+
 async function exportSelectedClip() {
   if (exportRecorder && exportRecorder.state !== 'inactive') { exportRecorder.stop(); return; }
   const video = $('previewVideo');
@@ -96,7 +173,18 @@ async function exportSelectedClip() {
   const ctx = canvas.getContext('2d');
   const canvasStream = canvas.captureStream(30);
   let audioTracks = [];
-  try { audioTracks = video.captureStream?.().getAudioTracks() || []; } catch {}
+  const voiceMode = state.audioMode === 'voice';
+  const voiceAudio = voiceMode ? $('voicePreview') : null;
+  if (voiceMode && voiceAudio.readyState < 2) await new Promise((resolve, reject) => {
+    const failed = () => reject(new Error('No se pudo cargar la narración generada.'));
+    voiceAudio.addEventListener('canplay', resolve, { once: true });
+    voiceAudio.addEventListener('error', failed, { once: true });
+  });
+  try {
+    if (voiceMode && voiceAudio) { voiceAudio.pause(); voiceAudio.currentTime = 0; audioTracks = voiceAudio.captureStream?.().getAudioTracks() || []; }
+    else audioTracks = video.captureStream?.().getAudioTracks() || [];
+  } catch {}
+  if (voiceMode && !audioTracks.length) { canvasStream.getTracks().forEach((track) => track.stop()); return toast('Este navegador no permite añadir la narración al archivo exportado. Prueba Chrome o elige audio original.'); }
   const stream = new MediaStream([...canvasStream.getVideoTracks(), ...audioTracks]);
   const types = ['video/mp4;codecs=avc1.42E01E,mp4a.40.2', 'video/mp4', 'video/webm;codecs=vp9,opus', 'video/webm;codecs=vp8,opus', 'video/webm'];
   const mimeType = types.find((type) => MediaRecorder.isTypeSupported(type));
@@ -112,11 +200,11 @@ async function exportSelectedClip() {
     link.href = url; link.download = `cliplab-clip-${Date.now()}.${mimeType.includes('mp4') ? 'mp4' : 'webm'}`;
     link.click(); setTimeout(() => URL.revokeObjectURL(url), 30_000);
     exportTracks.forEach((track) => track.stop()); exportTracks = []; exportRecorder = null;
-    video.pause(); updateExportState(`Exportado (${mimeType.includes('mp4') ? 'MP4' : 'WebM'})${audioTracks.length ? ' con audio original' : ' · sin pista de audio en este navegador'}.`);
+    video.pause(); if (voiceAudio) voiceAudio.pause(); updateExportState(`Exportado (${mimeType.includes('mp4') ? 'MP4' : 'WebM'})${audioTracks.length ? (voiceMode ? ' con narración generada y sin audio original' : ' con audio original') : ' · sin pista de audio en este navegador'}.`);
     $('exportClip').innerHTML = 'Exportar clip <span>↗</span>';
   };
   await new Promise((resolve) => { const done = () => resolve(); video.addEventListener('seeked', done, { once: true }); video.currentTime = range.start; if (Math.abs(video.currentTime - range.start) < .02) resolve(); });
-  updateExportState(audioTracks.length ? 'Grabando el fragmento con su audio original…' : 'Grabando el fragmento. Este navegador no permite capturar el audio original.');
+  updateExportState(audioTracks.length ? (voiceMode ? 'Grabando con la narración generada; el audio original está silenciado…' : 'Grabando el fragmento con su audio original…') : 'Grabando el fragmento. Este navegador no permite capturar el audio original.');
   $('exportClip').textContent = 'Detener exportación'; exportRecorder.start(250);
   const frame = () => {
     if (!exportRecorder || exportRecorder.state === 'inactive') return;
@@ -124,7 +212,7 @@ async function exportSelectedClip() {
     if (video.currentTime >= range.end || video.ended) { exportRecorder.stop(); return; }
     requestAnimationFrame(frame);
   };
-  try { await video.play(); requestAnimationFrame(frame); }
+  try { await video.play(); if (voiceAudio) await voiceAudio.play(); requestAnimationFrame(frame); }
   catch (error) { exportRecorder.stop(); toast(`No se pudo reproducir el vídeo para exportar: ${error.message}`); }
 }
 
@@ -483,6 +571,13 @@ function selectVideo(file) {
   state.file = file;
   state.words = [];
   state.previewRange = null;
+  state.ttsId++;
+  if (state.voiceUrl) URL.revokeObjectURL(state.voiceUrl);
+  state.voiceUrl = null;
+  state.voiceWords = [];
+  $('voicePreview').removeAttribute('src'); $('voicePreview').hidden = true;
+  $('voiceText').value = ''; $('generateVoice').disabled = true;
+  $('voiceStatus').textContent = 'Transcribe el vídeo y selecciona un clip para preparar la narración.';
   updateExportState('Transcribe el vídeo y selecciona un momento para preparar la exportación.');
   addLibraryFiles([file]);
   if (state.videoUrl) URL.revokeObjectURL(state.videoUrl);
@@ -505,7 +600,13 @@ function resetVideo() {
   state.transcriptionId++;
   state.words = [];
   state.previewRange = null;
+  state.ttsId++;
   state.file = null;
+  if (state.voiceUrl) URL.revokeObjectURL(state.voiceUrl);
+  state.voiceUrl = null;
+  state.voiceWords = [];
+  $('voicePreview').removeAttribute('src'); $('voicePreview').hidden = true;
+  $('voiceText').value = ''; $('generateVoice').disabled = true;
   updateExportState('Sube un vídeo y selecciona un momento para exportar.');
   if (state.videoUrl) URL.revokeObjectURL(state.videoUrl);
   state.videoUrl = null;
@@ -760,7 +861,14 @@ function renderCandidates(candidates) {
     use.addEventListener('click', () => {
       const preview = state.videoUrl || (candidate.preview_url ? new URL(candidate.preview_url, `${state.api}/`).href : null);
       state.previewRange = { start: Number(candidate.start_time) || 0, end: Number(candidate.end_time) || 0 };
-      updateExportState('Fragmento seleccionado. Puedes ajustar el encuadre y exportarlo en vertical.');
+      state.ttsId++;
+      if (state.voiceUrl) URL.revokeObjectURL(state.voiceUrl);
+      state.voiceUrl = null; $('voicePreview').removeAttribute('src'); $('voicePreview').hidden = true;
+      state.voiceWords = [];
+      $('voiceText').value = state.words.filter((word) => word.start < state.previewRange.end && word.end > state.previewRange.start).map((word) => word.word).join(' ').trim();
+      $('generateVoice').disabled = !$('voiceText').value;
+      $('voiceStatus').textContent = $('voiceText').value ? 'Revisa el texto, elige una voz y genera la narración.' : 'No hay transcripción para este fragmento. Escribe el texto que quieres narrar.';
+      refreshAudioMode();
       if (preview) { $('previewVideo').src = preview; $('previewVideo').currentTime = state.previewRange.start; $('previewStage').classList.add('has-video'); }
       syncCaption();
       $('captionPreview').hidden = false;
@@ -772,13 +880,19 @@ function renderCandidates(candidates) {
 
 function syncCaption() {
   const video = $('previewVideo');
-  if (!state.words.length || !state.previewRange || !video) return;
-  const visible = state.words.filter((word) => word.start >= state.previewRange.start && word.start < state.previewRange.end);
-  const index = visible.findIndex((word) => video.currentTime >= word.start && video.currentTime < word.end);
-  const active = index >= 0 ? index : visible.findIndex((word) => word.start > video.currentTime);
+  if (!state.previewRange || !video) return;
+  const generated = state.audioMode === 'voice' && Boolean(state.voiceUrl) && state.voiceWords.length > 0;
+  const sourceWords = generated ? state.voiceWords : state.words;
+  if (!sourceWords.length) { $('captionPreview').hidden = true; return; }
+  const now = generated ? video.currentTime - state.previewRange.start : video.currentTime;
+  const visible = generated ? sourceWords : sourceWords.filter((word) => word.start >= state.previewRange.start && word.start < state.previewRange.end);
+  if (generated && now >= visible[visible.length - 1].end) { $('captionPreview').hidden = true; return; }
+  const index = visible.findIndex((word) => now >= word.start && now < word.end);
+  const active = index >= 0 ? index : visible.findIndex((word) => word.start > now);
   if (active < 0) return;
   const from = Math.max(0, active - 2);
   const phrase = visible.slice(from, Math.min(visible.length, from + 5));
+  $('captionPreview').hidden = false;
   const host = $('captionWord');
   host.replaceChildren(...phrase.map((item, offset) => {
     const span = document.createElement('span');
@@ -904,8 +1018,12 @@ document.addEventListener('DOMContentLoaded', () => {
   $('previewVideo').addEventListener('seeked', updatePreviewCanvas);
   ['cropTop', 'cropX', 'cropZoom', 'hideCam', 'maskPosition', 'maskStyle', 'maskSize'].forEach((id) => $(id).addEventListener('input', applyFraming));
   $('exportClip').addEventListener('click', exportSelectedClip);
+  $('audioMode').addEventListener('change', refreshAudioMode);
+  $('generateVoice').addEventListener('click', generateVoiceover);
+      $('voiceText').addEventListener('input', () => { state.ttsId++; invalidateVoiceover(); $('generateVoice').disabled = Boolean(ttsPending) || !state.previewRange || !$('voiceText').value.trim(); });
+  $('voiceChoice').addEventListener('change', () => { state.ttsId++; if (state.voiceUrl) { invalidateVoiceover(); $('voiceStatus').textContent = 'Voz cambiada. Genera la narración de nuevo.'; } });
   $('previewSeek').addEventListener('input', () => { $('previewVideo').currentTime = Number($('previewSeek').value); });
-  updateExportState(); applyFraming();
+  applyFraming(); refreshAudioMode();
   $('saveProject').addEventListener('click', () => saveCurrentProject());
   $('newProject').addEventListener('click', () => { if (window.confirm('¿Empezar un proyecto nuevo? El borrador actual se conserva en Proyectos.')) { saveCurrentProject(true); resetProject(); toast('Proyecto nuevo listo.'); } });
   $('addCampaign')?.addEventListener('click', () => switchView('campaigns'));
