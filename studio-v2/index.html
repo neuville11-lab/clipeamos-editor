@@ -5,7 +5,7 @@
   <meta name="viewport" content="width=device-width,initial-scale=1">
   <meta name="theme-color" content="#f5f4f8">
   <title>ClipLab Studio</title>
-  <link rel="stylesheet" href="./styles.css?v=ef076cf">
+  <link rel="stylesheet" href="./styles.css?v=local-gta-1">
 </head>
 <body>
   <div class="app-shell">
@@ -22,7 +22,7 @@
         <button class="nav-item" data-view="settings"><span class="nav-icon">⚙</span> Ajustes</button>
       </nav>
       <div class="sidebar-bottom">
-        <div class="usage-card"><div class="usage-top"><span>Procesamiento</span><span class="usage-badge">EN PAUSA</span></div><p>Conecta el motor para analizar y exportar vídeos.</p><button id="openSettings" class="text-button">Configurar servicio <span>↗</span></button></div>
+        <div class="usage-card"><div class="usage-top"><span>Procesamiento</span><span class="usage-badge">LOCAL</span></div><p>Whisper transcribe en tu dispositivo. El vídeo no se sube.</p><button id="openSettings" class="text-button">Opciones del servicio <span>↗</span></button></div>
         <button class="profile"><span class="profile-avatar">U</span><span><b>Tu espacio</b><small>Plan personal</small></span><span class="more">···</span></button>
       </div>
     </aside>
@@ -57,18 +57,29 @@
               <div class="card-heading"><div class="heading-icon orange">02</div><div><h2>Vídeo fuente</h2><p>Sube el episodio completo para transcribirlo y detectar momentos.</p></div><span class="format-tag">MP4 · MOV · WEBM</span></div>
               <input id="videoFile" type="file" accept="video/mp4,video/quicktime,video/webm" hidden>
               <div class="upload-zone" id="uploadZone" role="button" tabindex="0" aria-label="Seleccionar vídeo fuente">
-                <div class="upload-icon">↑</div><strong>Suelta el vídeo aquí</strong><span>o <button type="button" class="inline-link" id="browseVideo">búscalo en tu equipo</button></span><small>Los archivos grandes se suben de forma segura cuando el servicio esté conectado.</small>
+                <div class="upload-icon">↑</div><strong>Suelta el vídeo aquí</strong><span>o <button type="button" class="inline-link" id="browseVideo">búscalo en tu equipo</button></span><small>Whisper transcribe en este dispositivo · el vídeo no se sube.</small>
               </div>
               <div class="selected-video" id="selectedVideo" hidden><div class="video-file-icon">▶</div><div class="video-file-info"><b id="videoName">Vídeo seleccionado</b><span id="videoMeta"></span></div><span class="file-check">✓</span><button class="remove-file" id="removeVideo" aria-label="Quitar vídeo">×</button></div>
             </section>
 
             <section class="card engine-card">
-              <div class="engine-symbol">✳</div><div class="engine-copy"><b>El motor de ClipLab está esperando conexión</b><span>El análisis, la transcripción y el render se ejecutarán en el backend al conectar el servicio.</span></div><button class="secondary-button compact" id="connectEngine">Configurar motor</button>
+              <div class="engine-symbol">✳</div><div class="engine-copy"><b>Whisper local</b><span id="engineStatus">Al cargar el vídeo, transcribimos en tu dispositivo. No necesitas conectar un backend.</span></div><button class="secondary-button compact" id="connectEngine">Transcribir de nuevo</button>
+            </section>
+
+            <section class="card idea-card">
+              <div class="card-heading"><div class="heading-icon orange">VI</div><div><h2>Guion rápido · GTA 6</h2><p>Convierte una duda real en un vídeo breve y útil.</p></div><span class="privacy-note">Plan diario</span></div>
+              <div class="idea-form">
+                <label class="field-label" for="ideaCategory">Tema<select id="ideaCategory" class="section-input"><option value="cars">Qué coche elegir</option><option value="updates">Novedades y actualizaciones</option><option value="guide">Guía rápida</option><option value="problem">Resolver un problema</option><option value="secrets">Secretos y detalles</option></select></label>
+                <label class="field-label" for="ideaProblem">Duda o problema del jugador<input id="ideaProblem" class="section-input" placeholder="Ej. qué coche conviene para carreras"></label>
+                <label class="field-label" for="ideaNotes">Datos comprobados y fuente<textarea id="ideaNotes" class="section-textarea" placeholder="Resume los datos confirmados y pega el enlace de la fuente para no inventar información…"></textarea></label>
+                <button id="prepareIdea" class="secondary-button">Preparar estructura del vídeo</button>
+                <div id="ideaOutput" class="idea-output" hidden></div>
+              </div>
             </section>
 
             <section class="card moments-card">
               <div class="card-heading"><div class="heading-icon dark">03</div><div><h2>Momentos sugeridos</h2><p>ClipLab propondrá 3–4 fragmentos que cumplen el mínimo del brief.</p></div><span class="suggestion-count" id="suggestion-count">0 clips</span></div>
-              <div class="empty-moments" id="emptyMoments"><div class="sparkle">✳</div><b>Primero, brief y vídeo</b><span>Después lanzaremos la transcripción y buscaremos ganchos, ideas memorables y picos de conversación.</span><button id="analyzeButton" class="primary-button" disabled>Analizar episodio <span>→</span></button></div>
+              <div class="empty-moments" id="emptyMoments"><div class="sparkle">✳</div><b>Primero, brief y vídeo</b><span>Whisper transcribirá el diálogo en este dispositivo y ClipLab buscará momentos interesantes.</span><button id="analyzeButton" class="primary-button" disabled>Buscar momentos <span>→</span></button></div>
               <div class="candidate-list" id="candidateList" hidden></div>
             </section>
           </div>
@@ -88,9 +99,9 @@
     </main>
   </div>
 
-  <dialog id="serviceDialog" class="service-dialog"><form method="dialog"><button class="dialog-close" aria-label="Cerrar">×</button><div class="overline"><span class="overline-dot"></span> PROCESAMIENTO EN LA NUBE</div><h2>Conecta el backend</h2><p>Configura la URL del servicio para habilitar transcripción, selección automática de momentos y exportación. No pegues aquí claves secretas.</p><label class="field-label" for="apiUrl">URL del servicio</label><input id="apiUrl" type="url" placeholder="https://api.tu-dominio.com" autocomplete="url"><div class="dialog-status" id="serviceStatus"><span class="status-dot"></span> Sin conectar</div><div class="dialog-actions"><button class="secondary-button" value="cancel">Cancelar</button><button class="primary-button" type="button" id="testConnection">Probar conexión</button></div><small class="dialog-footnote">El vídeo solo se enviará al servicio cuando pulses «Analizar episodio» y aceptes la confirmación de subida.</small></form></dialog>
+  <dialog id="serviceDialog" class="service-dialog"><form method="dialog"><button class="dialog-close" aria-label="Cerrar">×</button><div class="overline"><span class="overline-dot"></span> OPCIONAL · PROCESAMIENTO EN LA NUBE</div><h2>Servicio remoto</h2><p>Whisper local y las propuestas de momentos funcionan sin backend. Esta opción remota se mantiene para futuras funciones; no pegues claves secretas aquí.</p><label class="field-label" for="apiUrl">URL del servicio</label><input id="apiUrl" type="url" placeholder="https://api.tu-dominio.com" autocomplete="url"><div class="dialog-status" id="serviceStatus"><span class="status-dot"></span> Sin conectar</div><div class="dialog-actions"><button class="secondary-button" value="cancel">Cancelar</button><button class="primary-button" type="button" id="testConnection">Probar conexión</button></div><small class="dialog-footnote">En el flujo actual, subir un vídeo y transcribirlo con Whisper no lo envía a la nube.</small></form></dialog>
   <div id="toast" class="toast" role="status" aria-live="polite"></div>
-  <script src="./app.js?v=backend-sync-1" defer></script>
+  <script src="./app.js?v=local-whisper-gta-1" defer></script>
 </body>
 </html>
 

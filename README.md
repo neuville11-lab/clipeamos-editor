@@ -18,7 +18,7 @@ Editor local de clips verticales para campañas, publicado como página estátic
 4. Selecciona una pista o crea una base instrumental en el navegador.
 5. Exporta y revisa el resultado antes de publicarlo.
 
-La transcripción local usa Whisper Base mediante Transformers.js y Mediabunny. Studio v2 incluye además un backend FastAPI con faster-whisper, tiempos por palabra y sugerencias de cortes. Consulta [backend/README.md](backend/README.md) para desplegarlo. Revisa nombres, cifras y audio ruidoso. La exportación final en Studio v2 sigue pendiente de integración.
+Studio v2 reutiliza Whisper Base en un Web Worker local, produce tiempos por palabra y propone cortes al terminar. El vídeo no sale del dispositivo; la primera vez se descarga el modelo desde la CDN. El panel GTA 6 prepara un guion a partir de una duda y datos/fuente que añadas, no consulta tendencias en directo ni sustituye la verificación. El backend remoto queda opcional; la exportación final en Studio v2 sigue pendiente de integración.
 
 ## Privacidad
 

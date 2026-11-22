@@ -1,7 +1,9 @@
 const $ = (id) => document.getElementById(id);
-const keys = { brief: 'cliplab_studio_brief_v2', api: 'cliplab_studio_api_v2', projects: 'cliplab_studio_projects_v2', campaigns: 'cliplab_studio_campaigns_v2', prefs: 'cliplab_studio_prefs_v2' };
+const keys = { brief: 'cliplab_studio_brief_v2', api: 'cliplab_studio_api_v2', projects: 'cliplab_studio_projects_v2', campaigns: 'cliplab_studio_campaigns_v2', prefs: 'cliplab_studio_prefs_v2', gtaIdea: 'cliplab_gta6_daily_idea' };
 const readStore = (key, fallback) => { try { return JSON.parse(localStorage.getItem(key)) ?? fallback; } catch { return fallback; } };
-const state = { file: null, videoUrl: null, api: localStorage.getItem(keys.api) || '', job: null, pollTimer: null, view: 'editor', projectId: null, projects: Array.isArray(readStore(keys.projects, [])) ? readStore(keys.projects, []) : [], campaigns: Array.isArray(readStore(keys.campaigns, [])) ? readStore(keys.campaigns, []) : [], assets: [], words: [], previewRange: null, prefs: readStore(keys.prefs, { model: 'base', language: 'es', diarization: false, denoise: false, music: true }) };
+const state = { file: null, videoUrl: null, api: localStorage.getItem(keys.api) || '', job: null, pollTimer: null, view: 'editor', projectId: null, projects: Array.isArray(readStore(keys.projects, [])) ? readStore(keys.projects, []) : [], campaigns: Array.isArray(readStore(keys.campaigns, [])) ? readStore(keys.campaigns, []) : [], assets: [], words: [], previewRange: null, transcriptionId: 0, prefs: readStore(keys.prefs, { model: 'base', language: 'es', diarization: false, denoise: false, music: true }) };
+let asrWorker = null;
+let asrPending = null;
 
 function toast(message) {
   const node = $('toast');
@@ -311,7 +313,7 @@ function setServiceState(connected, message) {
   const dot = document.createElement('span'); dot.className = 'status-dot';
   target.append(dot, document.createTextNode(message));
   $('footerStatus').textContent = connected ? 'Backend conectado · los archivos solo se envían al iniciar un trabajo' : 'Backend sin conectar · no se ha enviado ningún archivo';
-  $('analyzeButton').disabled = !connected || !state.file || Boolean(state.job);
+  $('analyzeButton').disabled = !state.file || !state.words.length || Boolean(state.job);
 }
 
 function openServiceDialog() {
@@ -323,23 +325,29 @@ function selectVideo(file) {
   if (!file) return;
   if (!file.type.startsWith('video/')) return toast('Elige un archivo de vídeo válido.');
   state.file = file;
+  state.words = [];
+  state.previewRange = null;
   addLibraryFiles([file]);
   if (state.videoUrl) URL.revokeObjectURL(state.videoUrl);
   state.videoUrl = URL.createObjectURL(file);
   $('videoName').textContent = file.name;
-  $('videoMeta').textContent = `${formatSize(file.size)} · listo para analizar`;
+  $('videoMeta').textContent = `${formatSize(file.size)} · Whisper local`;
   $('uploadZone').hidden = true;
   $('selectedVideo').hidden = false;
   $('previewVideo').src = state.videoUrl;
   $('previewVideo').load();
   $('previewStage').classList.add('has-video');
   $('previewSeek').disabled = false;
-  $('analyzeButton').disabled = !state.api || Boolean(state.job);
-  $('footerStatus').textContent = state.api ? 'Vídeo seleccionado · todavía no se ha enviado' : 'Vídeo local · backend sin conectar';
+  $('analyzeButton').disabled = true;
+  $('footerStatus').textContent = 'Vídeo local · preparando transcripción Whisper';
   saveCurrentProject(true);
+  transcribeLocally(file);
 }
 
 function resetVideo() {
+  state.transcriptionId++;
+  state.words = [];
+  state.previewRange = null;
   state.file = null;
   if (state.videoUrl) URL.revokeObjectURL(state.videoUrl);
   state.videoUrl = null;
@@ -351,7 +359,167 @@ function resetVideo() {
   $('uploadZone').hidden = false;
   $('previewSeek').disabled = true;
   $('analyzeButton').disabled = true;
-  $('footerStatus').textContent = state.api ? 'Backend conectado · no se ha enviado ningún archivo' : 'Backend sin conectar · no se ha enviado ningún archivo';
+  $('footerStatus').textContent = 'Sin vídeo · no se ha enviado ningún archivo';
+  $('engineStatus').textContent = 'Sube un vídeo para transcribirlo aquí, sin subirlo a la nube.';
+  renderCandidates([]);
+}
+
+function getAsrWorker() {
+  if (asrWorker) return asrWorker;
+  asrWorker = new Worker(new URL('../asr-worker.js', location.href), { type: 'module' });
+  asrWorker.onmessage = ({ data }) => {
+    if (!asrPending || data.id !== asrPending.id) return;
+    if (data.type === 'progress') {
+      const message = Number.isFinite(data.progress)
+        ? `Descargando Whisper · ${Math.round(data.progress)}% · ${data.message || ''}`
+        : (data.message || 'Whisper está transcribiendo en este dispositivo…');
+      $('engineStatus').textContent = message;
+      $('footerStatus').textContent = message;
+      return;
+    }
+    const pending = asrPending;
+    asrPending = null;
+    if (data.type === 'result') pending.resolve(data.chunks || []);
+    else pending.reject(new Error(data.message || 'No se pudo completar la transcripción.'));
+  };
+  asrWorker.onerror = (event) => {
+    if (!asrPending) return;
+    asrPending.reject(new Error(event.message || 'Falló el worker Whisper.'));
+    asrPending = null;
+  };
+  return asrWorker;
+}
+
+function transcribeInWorker(file, id) {
+  const worker = getAsrWorker();
+  return new Promise((resolve, reject) => {
+    asrPending = { id, resolve, reject };
+    worker.postMessage({ type: 'transcribe', id, file });
+  });
+}
+
+function wordsFromChunks(chunks) {
+  const words = [];
+  for (const chunk of chunks || []) {
+    const text = String(chunk.text || '').trim();
+    const times = chunk.timestamp || chunk.timestamps;
+    if (!text || !times || !Number.isFinite(times[0]) || !Number.isFinite(times[1]) || times[1] <= times[0]) continue;
+    const parts = text.split(/\s+/).filter(Boolean);
+    if (parts.length === 1) { words.push({ word: parts[0], start: times[0], end: times[1] }); continue; }
+    const weights = parts.map((word) => Math.max(1, word.length));
+    const sum = weights.reduce((total, value) => total + value, 0);
+    let cursor = times[0];
+    parts.forEach((word, index) => {
+      const end = index === parts.length - 1 ? times[1] : cursor + (times[1] - times[0]) * weights[index] / sum;
+      words.push({ word, start: cursor, end }); cursor = end;
+    });
+  }
+  return words;
+}
+
+async function transcribeLocally(file) {
+  const id = ++state.transcriptionId;
+  $('engineStatus').textContent = 'Preparando el audio local… El vídeo no se enviará.';
+  $('footerStatus').textContent = 'Whisper se está preparando en segundo plano';
+  try {
+    const chunks = await transcribeInWorker(file, id);
+    if (id !== state.transcriptionId) return;
+    state.words = wordsFromChunks(chunks);
+    if (!state.words.length) throw new Error('Whisper no devolvió palabras con tiempos.');
+    $('engineStatus').textContent = `Transcripción lista · ${state.words.length.toLocaleString('es-ES')} palabras con tiempos · procesada en este dispositivo.`;
+    $('videoMeta').textContent = `${formatSize(file.size)} · ${state.words.length.toLocaleString('es-ES')} palabras transcritas`;
+    $('footerStatus').textContent = 'Transcripción local completada · ClipLab busca momentos';
+    suggestLocalMoments();
+    $('analyzeButton').disabled = false;
+  } catch (error) {
+    if (id !== state.transcriptionId) return;
+    $('engineStatus').textContent = `No se pudo transcribir automáticamente: ${error.message}. Comprueba la conexión para descargar el modelo Whisper.`;
+    $('footerStatus').textContent = 'Transcripción local interrumpida';
+    toast(error.message || 'No se pudo transcribir el vídeo.');
+  }
+}
+
+function suggestLocalMoments() {
+  const duration = Number($('previewVideo').duration);
+  if (!Number.isFinite(duration) || duration <= 0 || !state.words.length) {
+    $('emptyMoments').querySelector('span').textContent = 'Whisper terminará la transcripción y ClipLab buscará momentos interesantes automáticamente.';
+    return;
+  }
+  const minimum = Number(parseBrief($('briefText').value).duration) || 10;
+  if (duration < minimum) {
+    $('emptyMoments').querySelector('span').textContent = `El vídeo dura ${Math.floor(duration)} s y el brief pide al menos ${minimum} s.`;
+    renderCandidates([]);
+    return;
+  }
+  const target = Math.min(duration, Math.max(minimum, Math.min(45, duration)));
+  const step = Math.max(5, target * 0.32);
+  const starts = [];
+  for (let start = 0; start + minimum <= duration; start += step) starts.push(start);
+  if (duration > target) starts.push(duration - target);
+  const candidates = [];
+  for (const start of starts) {
+    const end = Math.min(duration, start + target);
+    if (end - start < minimum) continue;
+    const words = state.words.filter((word) => word.start < end && word.end > start);
+    const text = words.map((word) => word.word).join(' ').trim();
+    if (text.length < 28) continue;
+    let score = Math.min(text.length / 150, 2);
+    const signals = [
+      [/\b(pero|aunque|sin embargo|el problema|la clave|lo importante)\b/i, 2],
+      [/\b(nunca|siempre|nadie|error|secreto|sorpresa|incre[ií]ble)\b/i, 2.2],
+      [/\b(porque|por eso|significa|aprend[ií]|descubr[ií])\b/i, 1],
+      [/[?!]/, 0.5],
+      [/\b(euros?|inversi[oó]n|vivienda|alquiler|millones?)\b/i, 0.8],
+    ];
+    for (const [pattern, weight] of signals) if (pattern.test(text)) score += weight;
+    const keyLine = text.match(/[^.!?]{0,90}\b(pero|aunque|nunca|siempre|problema|clave|secreto|sorpresa)\b[^.!?]{0,90}/i)?.[0]?.trim();
+    candidates.push({
+      title: (keyLine || text).slice(0, 90), hook: keyLine || text.slice(0, 90),
+      reason: 'Propuesta local basada en énfasis y expresiones del diálogo; comprueba el contexto antes de exportar.',
+      start_time: start, end_time: end, score: Math.min(99, 45 + score * 8),
+    });
+  }
+  const selected = [];
+  for (const candidate of candidates.sort((a, b) => b.score - a.score)) {
+    if (selected.every((item) => Math.abs(item.start_time - candidate.start_time) > target * 0.65)) selected.push(candidate);
+    if (selected.length === 4) break;
+  }
+  selected.sort((a, b) => a.start_time - b.start_time);
+  if (!selected.length) $('emptyMoments').querySelector('span').textContent = 'No se encontraron suficientes palabras con tiempos para proponer clips.';
+  renderCandidates(selected);
+  $('suggestion-count').textContent = `${selected.length} clips`;
+  if (selected.length) $('footerStatus').textContent = `${state.words.length.toLocaleString('es-ES')} palabras analizadas localmente · ${selected.length} propuestas`;
+}
+
+function prepareGtaIdea() {
+  const category = $('ideaCategory').value;
+  const question = $('ideaProblem').value.trim();
+  const notes = $('ideaNotes').value.trim();
+  if (!question) { $('ideaProblem').focus(); return toast('Escribe la duda concreta que quieres resolver.'); }
+  const starts = {
+    cars: `¿Qué coche de GTA 6 te conviene para ${question}?`,
+    updates: `Antes de probar ${question}, mira qué cambia y a quién le sirve.`,
+    guide: `Si necesitas ${question}, aquí tienes una guía rápida.`,
+    problem: `¿Te está pasando esto: ${question}? Prueba este método.`,
+    secrets: `¿Te has fijado en ${question}? Esto es lo que sabemos y cómo comprobarlo.`,
+  };
+  const hook = starts[category] || starts.guide;
+  const title = `GTA 6: ${question}`;
+  const script = `${hook}\n\n1. Explica la situación en una frase.\n2. Da la solución o comparación en 2–3 pasos.\n3. Cierra con el resultado que debería notar el jugador.\n\nDatos por revisar:\n${notes || '[Añade solo datos confirmados y el enlace de la fuente antes de grabar.]'}\n\nCierre: “Guarda este vídeo para probarlo y dime qué otra duda de GTA 6 resolvemos.”`;
+  const output = $('ideaOutput');
+  output.replaceChildren();
+  const heading = document.createElement('b'); heading.textContent = 'Guion base · revísalo con una fuente actual';
+  const titleNode = document.createElement('p'); titleNode.className = 'idea-title'; titleNode.textContent = title;
+  const body = document.createElement('pre'); body.textContent = script;
+  const caption = document.createElement('p'); caption.textContent = `${hook}\n\n#GTA6 #GTAVI #Gaming`;
+  const copy = document.createElement('button'); copy.className = 'secondary-button'; copy.textContent = 'Copiar guion y descripción';
+  copy.addEventListener('click', async () => {
+    try { await navigator.clipboard.writeText(`${title}\n\n${script}\n\nDescripción:\n${caption.textContent}`); toast('Guion copiado.'); }
+    catch { toast('El navegador no permitió copiar. Selecciona el texto del guion.'); }
+  });
+  output.append(heading, titleNode, body, caption, copy);
+  output.hidden = false;
+  localStorage.setItem(keys.gtaIdea, JSON.stringify({ category, question, notes, date: new Date().toISOString().slice(0, 10) }));
 }
 
 async function checkConnection() {
@@ -491,6 +659,13 @@ async function startAnalysis() {
 document.addEventListener('DOMContentLoaded', () => {
   $('campaignCount').textContent = String(state.campaigns.length);
   $('briefText').value = localStorage.getItem(keys.brief) || '';
+  const savedIdea = readStore(keys.gtaIdea, null);
+  if (savedIdea) {
+    $('ideaCategory').value = savedIdea.category || 'cars';
+    $('ideaProblem').value = savedIdea.question || '';
+    $('ideaNotes').value = savedIdea.notes || '';
+    if (savedIdea.question) prepareGtaIdea();
+  }
   renderRules();
   if (state.api) {
     $('apiUrl').value = state.api;
@@ -522,11 +697,15 @@ document.addEventListener('DOMContentLoaded', () => {
   $('uploadZone').addEventListener('drop', (event) => selectVideo(event.dataTransfer.files?.[0]));
   $('removeVideo').addEventListener('click', resetVideo);
   $('openSettings').addEventListener('click', openServiceDialog);
-  $('connectEngine').addEventListener('click', openServiceDialog);
+  $('connectEngine').addEventListener('click', () => state.file ? transcribeLocally(state.file) : toast('Sube un vídeo para iniciar Whisper local.'));
   $('testConnection').addEventListener('click', checkConnection);
   $('serviceDialog').querySelector('.dialog-close').addEventListener('click', () => $('serviceDialog').close());
-  $('analyzeButton').addEventListener('click', startAnalysis);
-  $('previewVideo').addEventListener('loadedmetadata', () => { $('previewSeek').max = $('previewVideo').duration || 0; });
+  $('analyzeButton').addEventListener('click', suggestLocalMoments);
+  $('prepareIdea').addEventListener('click', prepareGtaIdea);
+  ['ideaCategory', 'ideaProblem', 'ideaNotes'].forEach((id) => $(id).addEventListener('change', () => {
+    localStorage.setItem(keys.gtaIdea, JSON.stringify({ category: $('ideaCategory').value, question: $('ideaProblem').value, notes: $('ideaNotes').value, date: new Date().toISOString().slice(0, 10) }));
+  }));
+  $('previewVideo').addEventListener('loadedmetadata', () => { $('previewSeek').max = $('previewVideo').duration || 0; if (state.words.length) suggestLocalMoments(); });
   $('previewVideo').addEventListener('timeupdate', () => { $('previewSeek').value = $('previewVideo').currentTime; syncCaption(); });
   $('previewSeek').addEventListener('input', () => { $('previewVideo').currentTime = Number($('previewSeek').value); });
   $('saveProject').addEventListener('click', () => saveCurrentProject());
