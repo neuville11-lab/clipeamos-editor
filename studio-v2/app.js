@@ -1,5 +1,5 @@
 const $ = (id) => document.getElementById(id);
-const keys = { brief: 'cliplab_studio_brief_v2', api: 'cliplab_studio_api_v2', projects: 'cliplab_studio_projects_v2', campaigns: 'cliplab_studio_campaigns_v2', prefs: 'cliplab_studio_prefs_v2', gtaIdea: 'cliplab_gta6_daily_idea' };
+const keys = { brief: 'cliplab_studio_brief_v2', api: 'cliplab_studio_api_v2', projects: 'cliplab_studio_projects_v2', campaigns: 'cliplab_studio_campaigns_v2', prefs: 'cliplab_studio_prefs_v2', gtaIdea: 'cliplab_gta6_daily_idea', goal: 'cliplab_goal_query_v1', youtube: 'cliplab_youtube_reference_v1' };
 const readStore = (key, fallback) => { try { return JSON.parse(localStorage.getItem(key)) ?? fallback; } catch { return fallback; } };
 const state = { file: null, videoUrl: null, api: localStorage.getItem(keys.api) || '', job: null, pollTimer: null, view: 'editor', projectId: null, projects: Array.isArray(readStore(keys.projects, [])) ? readStore(keys.projects, []) : [], campaigns: Array.isArray(readStore(keys.campaigns, [])) ? readStore(keys.campaigns, []) : [], assets: [], words: [], previewRange: null, transcriptionId: 0, prefs: readStore(keys.prefs, { model: 'base', language: 'es', diarization: false, denoise: false, music: true }) };
 let asrWorker = null;
@@ -68,13 +68,15 @@ function renderSection() {
 }
 
 function persistProjects() { localStorage.setItem(keys.projects, JSON.stringify(state.projects)); }
-function persistCampaigns() { localStorage.setItem(keys.campaigns, JSON.stringify(state.campaigns)); $('campaignCount').textContent = String(state.campaigns.length); }
+function persistCampaigns() { localStorage.setItem(keys.campaigns, JSON.stringify(state.campaigns)); if ($('campaignCount')) $('campaignCount').textContent = String(state.campaigns.length); }
 
 function saveCurrentProject(silent = false) {
   const brief = $('briefText').value.trim();
-  if (!brief && !state.file) { if (!silent) toast('Añade un brief o un vídeo antes de guardar.'); return; }
-  const name = $('projectNameInput').value.trim() || brief.split(/\r?\n/).find(Boolean)?.slice(0, 48) || state.file?.name || 'Proyecto sin título';
-  const project = { id: state.projectId || `project-${Date.now()}`, name, brief, videoName: state.file?.name || '', updatedAt: Date.now(), status: 'Borrador' };
+  const goal = $('goalQuery')?.value.trim() || '';
+  const youtubeUrl = $('youtubeUrl')?.value.trim() || '';
+  if (!brief && !goal && !youtubeUrl && !state.file) { if (!silent) toast('Añade una pregunta, un enlace o un vídeo antes de guardar.'); return; }
+  const name = $('projectNameInput').value.trim() || goal.slice(0, 48) || state.file?.name || youtubeUrl.slice(0, 48) || 'Proyecto sin título';
+  const project = { id: state.projectId || `project-${Date.now()}`, name, brief, goal, youtubeUrl, platform: $('goalPlatform')?.value || 'TikTok', minimum: Number($('clipMinimum')?.value || 10), videoName: state.file?.name || '', updatedAt: Date.now(), status: 'Borrador' };
   state.projectId = project.id;
   state.projects = [project, ...state.projects.filter((item) => item.id !== project.id)];
   persistProjects();
@@ -87,6 +89,14 @@ function resetProject() {
   $('projectNameInput').value = '';
   $('briefText').value = '';
   localStorage.removeItem(keys.brief);
+  $('goalQuery').value = '';
+  $('focusSummary').textContent = 'Escribe una pregunta para priorizar fragmentos relevantes.';
+  $('youtubeUrl').value = '';
+  $('sourceMessage').textContent = 'El enlace abre el reproductor de referencia. Para analizar automáticamente, sube el archivo original propio o autorizado.';
+  $('sourceEmbedWrap').hidden = true;
+  $('sourceEmbed').removeAttribute('src');
+  localStorage.removeItem(keys.goal);
+  localStorage.removeItem(keys.youtube);
   $('briefFile').value = '';
   resetVideo();
   renderRules();
@@ -98,6 +108,14 @@ function loadProject(projectId) {
   state.projectId = project.id;
   $('projectNameInput').value = project.name || '';
   $('briefText').value = project.brief || '';
+  $('goalQuery').value = project.goal || '';
+  $('focusSummary').textContent = project.goal || 'Escribe una pregunta para priorizar fragmentos relevantes.';
+  $('youtubeUrl').value = project.youtubeUrl || '';
+  $('goalPlatform').value = project.platform || 'TikTok';
+  $('clipMinimum').value = String(project.minimum || 10);
+  $('clipMinimumValue').textContent = `${$('clipMinimum').value} s`;
+  if (project.youtubeUrl) setYoutubeReference(project.youtubeUrl, false);
+  localStorage.setItem(keys.goal, $('goalQuery').value);
   localStorage.setItem(keys.brief, $('briefText').value);
   resetVideo();
   renderRules();
@@ -116,7 +134,7 @@ function renderProjects() {
     const card = document.createElement('article'); card.className = 'entity-card';
     const icon = document.createElement('div'); icon.className = 'entity-icon project-icon'; icon.textContent = '▶';
     const title = document.createElement('h3'); title.textContent = project.name;
-    const detail = document.createElement('p'); detail.textContent = project.videoName ? `${project.videoName} · el archivo debe volver a seleccionarse` : (project.brief ? project.brief.slice(0, 115) : 'Sin brief');
+    const detail = document.createElement('p'); detail.textContent = project.videoName ? `${project.videoName} · el archivo debe volver a seleccionarse` : (project.goal || project.youtubeUrl || project.brief || 'Sin enfoque guardado').slice(0, 115);
     const meta = document.createElement('div'); meta.className = 'entity-meta'; meta.textContent = `${project.status} · ${new Date(project.updatedAt).toLocaleDateString('es-ES')}`;
     const open = document.createElement('button'); open.className = 'secondary-button'; open.textContent = 'Continuar proyecto'; open.addEventListener('click', () => loadProject(project.id));
     card.append(icon, title, detail, meta, open); grid.append(card);
@@ -206,21 +224,21 @@ function parseBrief(text) {
 }
 
 function renderRules() {
-  const text = $('briefText').value.trim();
+  const text = $('briefText')?.value.trim() || '';
   const parsed = parseBrief(text);
-  $('campaignName').textContent = text.split(/\r?\n/).find(Boolean)?.slice(0, 36) || 'Nueva campaña';
-  $('minimumDuration').textContent = parsed.duration ? `${parsed.duration} s` : '—';
-  $('minimumViews').textContent = parsed.views ? Number(parsed.views).toLocaleString('es-ES') : '—';
-  $('platformName').textContent = parsed.channel ? parsed.channel[0].toUpperCase() + parsed.channel.slice(1) : 'TikTok';
+  if ($('campaignName')) $('campaignName').textContent = text.split(/\r?\n/).find(Boolean)?.slice(0, 36) || 'Nueva campaña';
+  if ($('minimumDuration')) $('minimumDuration').textContent = parsed.duration ? `${parsed.duration} s` : '—';
+  if ($('minimumViews')) $('minimumViews').textContent = parsed.views ? Number(parsed.views).toLocaleString('es-ES') : '—';
+  if ($('platformName')) $('platformName').textContent = parsed.channel ? parsed.channel[0].toUpperCase() + parsed.channel.slice(1) : 'TikTok';
   const target = $('campaignTags');
-  target.replaceChildren();
-  if (!parsed.rules.length) {
+  if (target) target.replaceChildren();
+  if (target && !parsed.rules.length) {
     const span = document.createElement('span'); span.textContent = 'Sin requisitos detectados'; target.append(span);
-  } else {
+  } else if (target) {
     parsed.rules.forEach((rule) => { const span = document.createElement('span'); span.className = 'rule-pill'; span.textContent = rule; target.append(span); });
   }
-  $('detectedRules').hidden = !parsed.rules.length;
-  if (parsed.rules.length) {
+  if ($('detectedRules')) $('detectedRules').hidden = !parsed.rules.length;
+  if (parsed.rules.length && $('detectedRules')) {
     $('detectedRules').replaceChildren(...parsed.rules.map((rule) => { const el = document.createElement('span'); el.className = 'rule-pill'; el.textContent = rule; return el; }));
   }
 }
@@ -313,7 +331,22 @@ function setServiceState(connected, message) {
   const dot = document.createElement('span'); dot.className = 'status-dot';
   target.append(dot, document.createTextNode(message));
   $('footerStatus').textContent = connected ? 'Backend opcional conectado · transcripción local disponible' : 'Whisper local · el vídeo se procesa en este dispositivo';
-  $('analyzeButton').disabled = !state.file || !state.words.length || Boolean(state.job);
+  $('analyzeButton').disabled = !state.file || !state.words.length || !$('goalQuery')?.value.trim() || Boolean(state.job);
+}
+
+function setYoutubeReference(rawUrl, notify = true) {
+  let url;
+  try { url = new URL(rawUrl.trim()); } catch { return toast('Pega un enlace completo de YouTube.'); }
+  const host = url.hostname.toLowerCase().replace(/^www\./, '').replace(/^m\./, '');
+  if (!['youtube.com', 'youtu.be'].includes(host)) return toast('Usa un enlace de youtube.com o youtu.be.');
+  let id = host === 'youtu.be' ? url.pathname.split('/').filter(Boolean)[0] : (url.searchParams.get('v') || url.pathname.match(/\/(?:shorts|embed|live)\/([^/?]+)/)?.[1]);
+  if (!id || !/^[\w-]{11}$/.test(id)) return toast('No he podido reconocer el ID del vídeo de YouTube.');
+  $('youtubeUrl').value = url.href;
+  $('sourceEmbed').src = `https://www.youtube-nocookie.com/embed/${id}`;
+  $('sourceEmbedWrap').hidden = false;
+  $('sourceMessage').textContent = 'Enlace cargado como referencia. Para transcribirlo, selecciona también el archivo original propio o autorizado; el reproductor de YouTube no expone el vídeo al editor.';
+  localStorage.setItem(keys.youtube, url.href);
+  if (notify) { saveCurrentProject(true); toast('Vídeo de referencia añadido.'); }
 }
 
 function openServiceDialog() {
@@ -430,7 +463,7 @@ async function transcribeLocally(file) {
     $('videoMeta').textContent = `${formatSize(file.size)} · ${state.words.length.toLocaleString('es-ES')} palabras transcritas`;
     $('footerStatus').textContent = 'Transcripción local completada · ClipLab busca momentos';
     suggestLocalMoments();
-    $('analyzeButton').disabled = false;
+    $('analyzeButton').disabled = !$('goalQuery').value.trim();
   } catch (error) {
     if (id !== state.transcriptionId) return;
     $('engineStatus').textContent = `No se pudo transcribir automáticamente: ${error.message}. Comprueba la conexión para descargar el modelo Whisper.`;
@@ -445,9 +478,15 @@ function suggestLocalMoments() {
     $('emptyMoments').querySelector('span').textContent = 'Whisper terminará la transcripción y ClipLab buscará momentos interesantes automáticamente.';
     return;
   }
-  const minimum = Number(parseBrief($('briefText').value).duration) || 10;
+  const minimum = Number($('clipMinimum').value) || 10;
+  const focus = $('goalQuery').value.trim();
+  if (!focus) {
+    $('emptyMoments').querySelector('span').textContent = 'Escribe qué respuesta, duda o tema estás buscando para ordenar los fragmentos por relevancia.';
+    renderCandidates([]);
+    return;
+  }
   if (duration < minimum) {
-    $('emptyMoments').querySelector('span').textContent = `El vídeo dura ${Math.floor(duration)} s y el brief pide al menos ${minimum} s.`;
+    $('emptyMoments').querySelector('span').textContent = `El vídeo dura ${Math.floor(duration)} s y el mínimo elegido es ${minimum} s.`;
     renderCandidates([]);
     return;
   }
@@ -464,6 +503,12 @@ function suggestLocalMoments() {
     const text = words.map((word) => word.word).join(' ').trim();
     if (text.length < 28) continue;
     let score = Math.min(text.length / 150, 2);
+    const normalize = (value) => value.toLocaleLowerCase('es').normalize('NFD').replace(/[\u0300-\u036f]/g, '');
+    const stopWords = new Set(['que', 'para', 'con', 'como', 'por', 'una', 'uno', 'del', 'las', 'los', 'esto', 'esta', 'este', 'sobre', 'quiero', 'hacer', 'short', 'video']);
+    const focusTerms = [...new Set(normalize(focus).match(/[a-z0-9]{3,}/g) || [])].filter((term) => !stopWords.has(term));
+    const normalizedText = normalize(text);
+    let matchedTerms = 0;
+    for (const term of focusTerms) if (normalizedText.includes(term)) { score += 2.5; matchedTerms++; }
     const signals = [
       [/\b(pero|aunque|sin embargo|el problema|la clave|lo importante)\b/i, 2],
       [/\b(nunca|siempre|nadie|error|secreto|sorpresa|incre[ií]ble)\b/i, 2.2],
@@ -475,8 +520,8 @@ function suggestLocalMoments() {
     const keyLine = text.match(/[^.!?]{0,90}\b(pero|aunque|nunca|siempre|problema|clave|secreto|sorpresa)\b[^.!?]{0,90}/i)?.[0]?.trim();
     candidates.push({
       title: (keyLine || text).slice(0, 90), hook: keyLine || text.slice(0, 90),
-      reason: 'Propuesta local basada en énfasis y expresiones del diálogo; comprueba el contexto antes de exportar.',
-      start_time: start, end_time: end, score: Math.min(99, 45 + score * 8),
+      reason: `${matchedTerms} términos del enfoque coinciden con este fragmento. Priorización local orientativa; revisa el contexto.`,
+      start_time: start, end_time: end, score: Math.min(99, 35 + score * 8),
     });
   }
   const selected = [];
@@ -488,12 +533,12 @@ function suggestLocalMoments() {
   if (!selected.length) $('emptyMoments').querySelector('span').textContent = 'No se encontraron suficientes palabras con tiempos para proponer clips.';
   renderCandidates(selected);
   $('suggestion-count').textContent = `${selected.length} clips`;
-  if (selected.length) $('footerStatus').textContent = `${state.words.length.toLocaleString('es-ES')} palabras analizadas localmente · ${selected.length} propuestas`;
+  if (selected.length) $('footerStatus').textContent = `${state.words.length.toLocaleString('es-ES')} palabras · prioridad: «${focus}» · ${selected.length} propuestas`;
 }
 
 function prepareGtaIdea() {
   const category = $('ideaCategory').value;
-  const question = $('ideaProblem').value.trim();
+  const question = $('ideaProblem').value.trim() || $('goalQuery').value.trim();
   const notes = $('ideaNotes').value.trim();
   if (!question) { $('ideaProblem').focus(); return toast('Escribe la duda concreta que quieres resolver.'); }
   const starts = {
@@ -584,7 +629,7 @@ function renderCandidates(candidates) {
     const reason = document.createElement('span'); reason.textContent = candidate.reason || candidate.summary || 'Fragmento recomendado por el análisis.';
     const meta = document.createElement('div'); meta.className = 'candidate-meta';
     const range = document.createElement('span'); range.textContent = `${formatTime(candidate.start_time)} – ${formatTime(candidate.end_time)}`;
-    const score = document.createElement('span'); score.className = 'candidate-score'; score.textContent = Number.isFinite(Number(candidate.score)) ? `POTENCIAL ${Math.round(Number(candidate.score))}` : 'SELECCIÓN AUTOMÁTICA';
+    const score = document.createElement('span'); score.className = 'candidate-score'; score.textContent = Number.isFinite(Number(candidate.score)) ? `RELEVANCIA ${Math.round(Number(candidate.score))}` : 'SELECCIÓN AUTOMÁTICA';
     meta.append(range, score); copy.append(title, reason, meta);
     const use = document.createElement('button'); use.className = 'candidate-use'; use.textContent = 'Previsualizar';
     use.addEventListener('click', () => {
@@ -657,8 +702,12 @@ async function startAnalysis() {
 }
 
 document.addEventListener('DOMContentLoaded', () => {
-  $('campaignCount').textContent = String(state.campaigns.length);
+  if ($('campaignCount')) $('campaignCount').textContent = String(state.campaigns.length);
   $('briefText').value = localStorage.getItem(keys.brief) || '';
+  $('goalQuery').value = localStorage.getItem(keys.goal) || '';
+  $('youtubeUrl').value = localStorage.getItem(keys.youtube) || '';
+  if ($('youtubeUrl').value) setYoutubeReference($('youtubeUrl').value, false);
+  $('focusSummary').textContent = $('goalQuery').value || 'Escribe una pregunta para priorizar fragmentos relevantes.';
   const savedIdea = readStore(keys.gtaIdea, null);
   if (savedIdea) {
     $('ideaCategory').value = savedIdea.category || 'cars';
@@ -696,6 +745,25 @@ document.addEventListener('DOMContentLoaded', () => {
   ['dragleave', 'drop'].forEach((eventName) => $('uploadZone').addEventListener(eventName, (event) => { event.preventDefault(); $('uploadZone').classList.remove('dragging'); }));
   $('uploadZone').addEventListener('drop', (event) => selectVideo(event.dataTransfer.files?.[0]));
   $('removeVideo').addEventListener('click', resetVideo);
+  $('useYoutubeUrl').addEventListener('click', () => setYoutubeReference($('youtubeUrl').value));
+  $('youtubeUrl').addEventListener('keydown', (event) => { if (event.key === 'Enter') { event.preventDefault(); setYoutubeReference($('youtubeUrl').value); } });
+  $('goalQuery').addEventListener('input', () => {
+    const goal = $('goalQuery').value.trim();
+    localStorage.setItem(keys.goal, goal);
+    $('focusSummary').textContent = goal || 'Escribe una pregunta para priorizar fragmentos relevantes.';
+    $('analyzeButton').disabled = !goal || !state.words.length;
+    saveCurrentProject(true);
+  });
+  $('goalQuery').addEventListener('change', () => { if (state.words.length) suggestLocalMoments(); });
+  $('clipMinimum').addEventListener('input', () => {
+    $('clipMinimumValue').textContent = `${$('clipMinimum').value} s`;
+    localStorage.setItem('cliplab_clip_minimum_v1', $('clipMinimum').value);
+    if (state.words.length) suggestLocalMoments();
+  });
+  $('clipMinimum').value = localStorage.getItem('cliplab_clip_minimum_v1') || '10';
+  $('clipMinimumValue').textContent = `${$('clipMinimum').value} s`;
+  $('goalPlatform').value = localStorage.getItem('cliplab_goal_platform_v1') || 'TikTok';
+  $('goalPlatform').addEventListener('change', () => { localStorage.setItem('cliplab_goal_platform_v1', $('goalPlatform').value); saveCurrentProject(true); });
   $('openSettings').addEventListener('click', openServiceDialog);
   $('connectEngine').addEventListener('click', () => state.file ? transcribeLocally(state.file) : toast('Sube un vídeo para iniciar Whisper local.'));
   $('testConnection').addEventListener('click', checkConnection);
@@ -710,8 +778,8 @@ document.addEventListener('DOMContentLoaded', () => {
   $('previewSeek').addEventListener('input', () => { $('previewVideo').currentTime = Number($('previewSeek').value); });
   $('saveProject').addEventListener('click', () => saveCurrentProject());
   $('newProject').addEventListener('click', () => { if (window.confirm('¿Empezar un proyecto nuevo? El borrador actual se conserva en Proyectos.')) { saveCurrentProject(true); resetProject(); toast('Proyecto nuevo listo.'); } });
-  $('addCampaign').addEventListener('click', () => switchView('campaigns'));
-  document.querySelector('.edit-icon').addEventListener('click', () => switchView('campaigns'));
+  $('addCampaign')?.addEventListener('click', () => switchView('campaigns'));
+  document.querySelector('.edit-icon')?.addEventListener('click', () => switchView('campaigns'));
   document.querySelectorAll('.nav-item').forEach((button) => button.addEventListener('click', () => switchView(button.dataset.view)));
   document.querySelector('.brand').addEventListener('click', (event) => { event.preventDefault(); switchView('editor'); });
 });

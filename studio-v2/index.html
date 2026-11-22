@@ -5,20 +5,19 @@
   <meta name="viewport" content="width=device-width,initial-scale=1">
   <meta name="theme-color" content="#f5f4f8">
   <title>ClipLab Studio</title>
-  <link rel="stylesheet" href="./styles.css?v=local-gta-1">
+  <link rel="stylesheet" href="./styles.css?v=source-focus-1">
 </head>
 <body>
   <div class="app-shell">
     <aside class="sidebar">
       <a class="brand" href="#" aria-label="ClipLab Studio, inicio"><span class="brand-mark">cl</span><span>ClipLab<small>STUDIO</small></span></a>
-      <div class="workspace-switch"><span class="workspace-avatar">R</span><span><b>Reental Studio</b><small>Espacio de trabajo</small></span><span class="chevron">⌄</span></div>
+      <div class="workspace-switch"><span class="workspace-avatar">VI</span><span><b>GTA VI Studio</b><small>Espacio de trabajo</small></span><span class="chevron">⌄</span></div>
       <nav class="main-nav" aria-label="Navegación principal">
         <span class="nav-label">CREAR</span>
         <button class="nav-item active" data-view="editor"><span class="nav-icon">◫</span> Nuevo proyecto</button>
         <button class="nav-item" data-view="projects"><span class="nav-icon">▦</span> Proyectos</button>
         <button class="nav-item" data-view="library"><span class="nav-icon">▤</span> Biblioteca</button>
         <span class="nav-label nav-label-spaced">GESTIONAR</span>
-        <button class="nav-item" data-view="campaigns"><span class="nav-icon">◎</span> Campañas <span class="nav-count" id="campaignCount">0</span></button>
         <button class="nav-item" data-view="settings"><span class="nav-icon">⚙</span> Ajustes</button>
       </nav>
       <div class="sidebar-bottom">
@@ -31,19 +30,19 @@
       <header class="topbar"><div class="breadcrumbs"><span>Proyectos</span><span class="slash">/</span><b>Nuevo proyecto</b></div><div class="top-actions"><span class="autosave"><i></i> Guardado local</span><button class="icon-button" aria-label="Notificaciones">♧</button><button class="help-button">Ayuda <span>↗</span></button></div></header>
       <div class="page-content">
         <div id="editorView">
-        <section class="page-heading"><div><div class="overline"><span class="overline-dot"></span> RECORTA LO MEJOR</div><h1>Tu próximo clip empieza aquí<span>.</span></h1><p>Sube el episodio, define la campaña y deja que ClipLab encuentre los momentos que merecen verse.</p></div><div class="heading-actions"><button class="secondary-button" id="saveProject">Guardar proyecto</button><button class="secondary-button" id="newProject">＋ <span>Proyecto nuevo</span></button></div></section>
+        <section class="page-heading"><div><div class="overline"><span class="overline-dot"></span> DE LA PREGUNTA AL SHORT</div><h1>Encuentra el momento que responde<span>.</span></h1><p>Define qué necesita saber la audiencia. ClipLab ordena los fragmentos de tu vídeo por relación con ese tema.</p></div><div class="heading-actions"><button class="secondary-button" id="saveProject">Guardar proyecto</button><button class="secondary-button" id="newProject">＋ <span>Proyecto nuevo</span></button></div></section>
 
         <div class="project-name-row"><label for="projectNameInput">Nombre del proyecto</label><input id="projectNameInput" class="section-input" placeholder="Ej. Podcast Reental · episodio 12"></div>
         <section class="steps" aria-label="Progreso del proyecto">
-          <div class="step current"><span class="step-number">01</span><span>Brief y vídeo</span></div><span class="step-line"></span>
-          <div class="step"><span class="step-number">02</span><span>Analizar</span></div><span class="step-line"></span>
+          <div class="step current"><span class="step-number">01</span><span>Enfoque y fuente</span></div><span class="step-line"></span>
+          <div class="step"><span class="step-number">02</span><span>Buscar momentos</span></div><span class="step-line"></span>
           <div class="step"><span class="step-number">03</span><span>Editar</span></div><span class="step-line"></span>
           <div class="step"><span class="step-number">04</span><span>Exportar</span></div>
         </section>
 
         <div class="studio-grid">
           <div class="left-column">
-            <section class="card brief-card">
+            <section class="card brief-card" hidden>
               <div class="card-heading"><div class="heading-icon violet">01</div><div><h2>Brief de campaña</h2><p>Las reglas guían la selección de clips y la publicación.</p></div><button class="quiet-button" id="clearBrief">Limpiar</button></div>
               <div class="brief-body">
                 <label class="field-label" for="briefText">Pega el brief o carga el archivo</label>
@@ -53,11 +52,23 @@
               <div class="detected-rules" id="detectedRules" hidden></div>
             </section>
 
+            <section class="card goal-card">
+              <div class="card-heading"><div class="heading-icon violet">01</div><div><h2>¿Qué short queremos crear?</h2><p>Define la duda, problema o tema para priorizar los fragmentos que respondan a eso.</p></div></div>
+              <div class="brief-body">
+                <label class="field-label" for="goalQuery">Pregunta o enfoque del vídeo</label>
+                <textarea id="goalQuery" placeholder="Ej. Qué coche conviene para carreras y qué debería comparar antes de elegir"></textarea>
+                <label class="field-label source-url-label" for="youtubeUrl">Enlace de YouTube de referencia</label>
+                <div class="youtube-url-row"><input id="youtubeUrl" class="section-input" type="url" placeholder="https://www.youtube.com/watch?v=…"><button id="useYoutubeUrl" class="secondary-button">Añadir enlace</button></div>
+                <p id="sourceMessage" class="source-message">El enlace abre el reproductor de referencia. Para analizar automáticamente, sube el archivo original propio o autorizado.</p>
+                <div id="sourceEmbedWrap" class="source-embed-wrap" hidden><iframe id="sourceEmbed" title="Vídeo de referencia de YouTube" allow="accelerometer; autoplay; clipboard-write; encrypted-media; gyroscope; picture-in-picture; web-share" allowfullscreen referrerpolicy="strict-origin-when-cross-origin"></iframe></div>
+              </div>
+            </section>
+
             <section class="card media-card">
-              <div class="card-heading"><div class="heading-icon orange">02</div><div><h2>Vídeo fuente</h2><p>Sube el episodio completo para transcribirlo y detectar momentos.</p></div><span class="format-tag">MP4 · MOV · WEBM</span></div>
+              <div class="card-heading"><div class="heading-icon orange">02</div><div><h2>Vídeo que vamos a analizar</h2><p>Whisper buscará partes relacionadas con tu pregunta.</p></div><span class="format-tag">MP4 · MOV · WEBM</span></div>
               <input id="videoFile" type="file" accept="video/mp4,video/quicktime,video/webm" hidden>
               <div class="upload-zone" id="uploadZone" role="button" tabindex="0" aria-label="Seleccionar vídeo fuente">
-                <div class="upload-icon">↑</div><strong>Suelta el vídeo aquí</strong><span>o <button type="button" class="inline-link" id="browseVideo">búscalo en tu equipo</button></span><small>Whisper transcribe en este dispositivo · el vídeo no se sube.</small>
+                <div class="upload-icon">↑</div><strong>Suelta el vídeo aquí</strong><span>o <button type="button" class="inline-link" id="browseVideo">búscalo en tu equipo</button></span><small>Archivo propio o autorizado · Whisper procesa localmente.</small>
               </div>
               <div class="selected-video" id="selectedVideo" hidden><div class="video-file-icon">▶</div><div class="video-file-info"><b id="videoName">Vídeo seleccionado</b><span id="videoMeta"></span></div><span class="file-check">✓</span><button class="remove-file" id="removeVideo" aria-label="Quitar vídeo">×</button></div>
             </section>
@@ -78,14 +89,14 @@
             </section>
 
             <section class="card moments-card">
-              <div class="card-heading"><div class="heading-icon dark">03</div><div><h2>Momentos sugeridos</h2><p>ClipLab propondrá 3–4 fragmentos que cumplen el mínimo del brief.</p></div><span class="suggestion-count" id="suggestion-count">0 clips</span></div>
-              <div class="empty-moments" id="emptyMoments"><div class="sparkle">✳</div><b>Primero, brief y vídeo</b><span>Whisper transcribirá el diálogo en este dispositivo y ClipLab buscará momentos interesantes.</span><button id="analyzeButton" class="primary-button" disabled>Buscar momentos <span>→</span></button></div>
+              <div class="card-heading"><div class="heading-icon dark">03</div><div><h2>Momentos relacionados</h2><p>Fragmentos ordenados por coincidencia con el enfoque y la duración elegida.</p></div><span class="suggestion-count" id="suggestion-count">0 clips</span></div>
+              <div class="empty-moments" id="emptyMoments"><div class="sparkle">✳</div><b>Primero, enfoque y vídeo propio</b><span>Whisper transcribe el archivo en este dispositivo; después ordenamos los fragmentos según tu pregunta.</span><button id="analyzeButton" class="primary-button" disabled>Buscar momentos <span>→</span></button></div>
               <div class="candidate-list" id="candidateList" hidden></div>
             </section>
           </div>
 
           <aside class="right-column">
-            <section class="card campaign-card"><div class="card-heading slim"><div class="heading-icon violet">◎</div><div><h2>Campaña activa</h2><p>Los clips se preparan según estas reglas.</p></div><button class="edit-icon" aria-label="Editar campaña">↗</button></div><div class="campaign-name"><span class="campaign-dot"></span><b id="campaignName">Nueva campaña</b><span class="platform-chip" id="platformName">TikTok</span></div><div class="campaign-stats"><div><span>Duración mínima</span><b id="minimumDuration">—</b></div><div><span>Visitas por clip</span><b id="minimumViews">—</b></div></div><div class="campaign-tags" id="campaignTags"><span>Sin requisitos detectados</span></div><button class="add-campaign" id="addCampaign">＋ <span>Cargar brief de campaña</span></button></section>
+            <section class="card campaign-card"><div class="card-heading slim"><div class="heading-icon violet">◎</div><div><h2>Formato del short</h2><p>Elige dónde publicar y cuánto debe durar.</p></div></div><label class="field-label output-setting" for="goalPlatform">Red social<select id="goalPlatform" class="section-input"><option>TikTok</option><option>YouTube Shorts</option><option>Instagram Reels</option></select></label><label class="field-label output-setting" for="clipMinimum">Duración mínima <span id="clipMinimumValue">10 s</span><input id="clipMinimum" type="range" min="10" max="90" step="1" value="10"></label><div id="focusSummary" class="focus-summary">Escribe una pregunta para priorizar fragmentos relevantes.</div></section>
 
             <section class="card preview-card"><div class="preview-heading"><div><h2>Vista previa</h2><span>Previsualiza un clip seleccionado</span></div><button class="more-button" aria-label="Más opciones">···</button></div><div class="preview-stage" id="previewStage"><div class="preview-placeholder"><span class="play-outline">▶</span><b>Tu clip aparecerá aquí</b><span>Cuando el análisis termine</span></div><video id="previewVideo" playsinline></video><div id="captionPreview" class="caption-preview" hidden><span id="captionWord">Tu subtítulo</span></div><div class="preview-brand">CLIPLAB <span>STUDIO</span></div></div><div class="preview-controls"><span>00:00</span><input type="range" min="0" max="100" value="0" id="previewSeek" aria-label="Posición del clip" disabled><span>00:00</span></div><div class="preview-caption-style"><div><b>Subtítulos</b><span>Palabra activa · contorno alto contraste</span></div><span class="style-swatch">Aa</span></div></section>
 
@@ -101,7 +112,7 @@
 
   <dialog id="serviceDialog" class="service-dialog"><form method="dialog"><button class="dialog-close" aria-label="Cerrar">×</button><div class="overline"><span class="overline-dot"></span> OPCIONAL · PROCESAMIENTO EN LA NUBE</div><h2>Servicio remoto</h2><p>Whisper local y las propuestas de momentos funcionan sin backend. Esta opción remota se mantiene para futuras funciones; no pegues claves secretas aquí.</p><label class="field-label" for="apiUrl">URL del servicio</label><input id="apiUrl" type="url" placeholder="https://api.tu-dominio.com" autocomplete="url"><div class="dialog-status" id="serviceStatus"><span class="status-dot"></span> Sin conectar</div><div class="dialog-actions"><button class="secondary-button" value="cancel">Cancelar</button><button class="primary-button" type="button" id="testConnection">Probar conexión</button></div><small class="dialog-footnote">En el flujo actual, subir un vídeo y transcribirlo con Whisper no lo envía a la nube.</small></form></dialog>
   <div id="toast" class="toast" role="status" aria-live="polite"></div>
-  <script src="./app.js?v=local-whisper-gta-2" defer></script>
+  <script src="./app.js?v=source-focus-1" defer></script>
 </body>
 </html>
 

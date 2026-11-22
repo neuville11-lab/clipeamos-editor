@@ -18,7 +18,7 @@ Editor local de clips verticales para campañas, publicado como página estátic
 4. Selecciona una pista o crea una base instrumental en el navegador.
 5. Exporta y revisa el resultado antes de publicarlo.
 
-Studio v2 reutiliza Whisper Base en un Web Worker local, produce tiempos por palabra y propone cortes al terminar. El vídeo no sale del dispositivo; la primera vez se descarga el modelo desde la CDN. El panel GTA 6 prepara un guion a partir de una duda y datos/fuente que añadas, no consulta tendencias en directo ni sustituye la verificación. El backend remoto queda opcional; la exportación final en Studio v2 sigue pendiente de integración.
+Studio v2 está orientado a una pregunta o problema concreto, una URL de referencia y el archivo fuente. El reproductor incrustado de YouTube sirve como referencia; Whisper necesita un archivo que el usuario tenga derecho a editar y el análisis local entrega tiempos por palabra. Los cortes se priorizan por coincidencia de términos y señales del diálogo, no por una predicción de viralidad. El panel GTA 6 prepara un guion con los datos y la fuente que añadas; no consulta tendencias en directo ni sustituye la verificación. La API oficial de YouTube solo permite descargar subtítulos cuando la cuenta tiene permiso de edición del vídeo. El backend remoto queda opcional; la exportación final en Studio v2 sigue pendiente de integración.
 
 ## Privacidad
 
