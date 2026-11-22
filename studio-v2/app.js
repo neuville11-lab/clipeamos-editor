@@ -1,7 +1,10 @@
+Warning: truncated output (original token count: 15061)
+Total output lines: 916
+
 const $ = (id) => document.getElementById(id);
 const keys = { brief: 'cliplab_studio_brief_v2', api: 'cliplab_studio_api_v2', projects: 'cliplab_studio_projects_v2', campaigns: 'cliplab_studio_campaigns_v2', prefs: 'cliplab_studio_prefs_v2', gtaIdea: 'cliplab_gta6_daily_idea', goal: 'cliplab_goal_query_v1', youtube: 'cliplab_youtube_reference_v1' };
 const readStore = (key, fallback) => { try { return JSON.parse(localStorage.getItem(key)) ?? fallback; } catch { return fallback; } };
-const state = { file: null, videoUrl: null, api: localStorage.getItem(keys.api) || '', job: null, pollTimer: null, view: 'editor', projectId: null, projects: Array.isArray(readStore(keys.projects, [])) ? readStore(keys.projects, []) : [], campaigns: Array.isArray(readStore(keys.campaigns, [])) ? readStore(keys.campaigns, []) : [], assets: [], words: [], previewRange: null, transcriptionId: 0, prefs: readStore(keys.prefs, { model: 'base', language: 'es', diarization: false, denoise: false, music: true }) };
+const state = { file: null, videoUrl: null, api: localStorage.getItem(keys.api) || '', job: null, pollTimer: null, view: 'editor', projectId: null, projects: Array.isArray(readStore(keys.projects, [])) ? readStore(keys.projects, []) : [], campaigns: Array.isArray(readStore(keys.campaigns, [])) ? readStore(keys.campaigns, []) : [], assets: [], words: [], previewRange: null, transcriptionId: 0, prefs: readStore(keys.prefs, { model: 'small', language: 'es', diarization: false, denoise: false, music: true }) };
 let asrWorker = null;
 let asrPending = null;
 let exportRecorder = null;
@@ -178,7 +181,7 @@ function renderSection() {
     $('libraryFiles').addEventListener('change', (event) => addLibraryFiles(event.target.files));
     renderLibrary();
   } else if (state.view === 'settings') {
-    host.innerHTML = `${commonHead('PREFERENCIAS','Ajustes','Elige cómo debe trabajar el motor cuando esté conectado.')}<div class="settings-grid"><section class="card settings-card"><div class="card-heading"><div class="heading-icon violet">API</div><div><h2>Backend de ClipLab</h2><p>La URL se guarda solo en este navegador. No guardes claves aquí.</p></div></div><div class="settings-content"><label class="field-label" for="settingsApiUrl">URL del servicio</label><div class="settings-inline"><input class="section-input" id="settingsApiUrl" type="url" placeholder="https://api.tu-dominio.com"><button class="secondary-button" id="settingsTestConnection">Probar conexión</button></div><div class="dialog-status" id="settingsServiceStatus"><span class="status-dot"></span> Sin conectar</div></div></section><section class="card settings-card"><div class="card-heading"><div class="heading-icon orange">AI</div><div><h2>Procesamiento de voz</h2><p>Preferencias que se enviarán al worker cuando se active.</p></div></div><div class="settings-content settings-options"><label class="field-label">Modelo de transcripción<select class="section-input" id="prefModel"><option value="base">Whisper Base · equilibrio</option><option value="small">Whisper Small · más precisión y coste</option></select></label><label class="field-label">Idioma de transcripción<select class="section-input" id="prefLanguage"><option value="es">Español</option><option value="auto">Detección automática</option><option value="en">Inglés</option></select></label><label class="toggle-row"><span><b>Identificar quién habla</b><small>Diarización de voces · necesita modelo adicional.</small></span><input type="checkbox" id="prefDiarization"></label><label class="toggle-row"><span><b>Limpiar ruido de voz</b><small>Mejora opcional de audio · añade tiempo de proceso.</small></span><input type="checkbox" id="prefDenoise"></label><label class="toggle-row"><span><b>Incluir base musical</b><small>La música se mezcla por debajo de la voz.</small></span><input type="checkbox" id="prefMusic"></label><button class="primary-button" id="savePrefs">Guardar preferencias</button></div></section><section class="card settings-card privacy-card"><div class="heading-icon dark">▣</div><div><h2>Privacidad y coste</h2><p>El procesamiento en nube enviará el vídeo al backend y a los workers configurados. La política de borrado y el límite de gasto se establecerán antes de activarlo.</p></div></section></div>`;
+    host.innerHTML = `${commonHead('PREFERENCIAS','Ajustes','Elige cómo debe trabajar el motor cuando esté conectado.')}<div class="settings-grid"><section class="card settings-card"><div class="card-heading"><div class="heading-icon violet">API</div><div><h2>Backend de ClipLab</h2><p>La URL se guarda solo en este navegador. No guardes claves aquí.</p></div></div><div class="settings-content"><label class="field-label" for="settingsApiUrl">URL del servicio</label><div class="settings-inline"><input class="section-input" id="settingsApiUrl" type="url" placeholder="https://api.tu-dominio.com"><button class="secondary-button" id="settingsTestConnection">Probar conexión</button></div><div class="dialog-status" id="settingsServiceStatus"><span class="status-dot"></span> Sin conectar</div></div></section><section class="card settings-card"><div class="card-heading"><div class="heading-icon orange">AI</div><div><h2>Procesamiento de voz</h2><p>Whisper Small mejora la precisión; la primera descarga y el análisis tardan más.</p></div></div><div class="settings-content settings-options"><label class="field-label">Modelo de transcripción<select class="section-input" id="prefModel"><option value="small">Whisper Small · más precisión (recomendado)</option><option value="base">Whisper Base · más rápido</option></select></label><label class="field-label">Idioma de transcripción<select class="section-input" id="prefLanguage"><option value="es">Español</option><option value="auto">Detección automática</option><option value="en">Inglés</option></select></label><label class="toggle-row"><span><b>Identificar quién habla</b><small>Diarización de voces · necesita modelo adicional.</small></span><input type="checkbox" id="prefDiarization"></label><label class="toggle-row"><span><b>Limpiar ruido de voz</b><small>Mejora opcional de audio · añade tiempo de proceso.</small></span><input type="checkbox" id="prefDenoise"></label><label class="toggle-row"><span><b>Incluir base musical</b><small>La música se mezcla por debajo de la voz.</small></span><input type="checkbox" id="prefMusic"></label><button class="primary-button" id="savePrefs">Guardar preferencias</button></div></section><section class="card settings-card privacy-card"><div class="heading-icon dark">▣</div><div><h2>Privacidad y coste</h2><p>El procesamiento en nube enviará el vídeo al backend y a los workers configurados. La política de borrado y el límite de gasto se establecerán antes de activarlo.</p></div></section></div>`;
     $('settingsApiUrl').value = state.api;
     $('prefModel').value = state.prefs.model;
     $('prefLanguage').value = state.prefs.language;
@@ -395,12 +398,7 @@ async function extractDocxText(buffer) {
   for (let offset = bytes.length - 22; offset >= eocdMin; offset -= 1) {
     if (view.getUint32(offset, true) === 0x06054b50) { eocd = offset; break; }
   }
-  if (eocd < 0) throw new Error('El DOCX no parece válido o está dañado.');
-  const entryCount = view.getUint16(eocd + 10, true);
-  let cursor = view.getUint32(eocd + 16, true);
-  let documentEntry = null;
-  for (let index = 0; index < entryCount; index += 1) {
-    if (view.getUint32(cursor, true) !== 0x02014b50) throw new Error('No se pudo abrir el contenido del DOCX.');
+  if (eocd < 0) throw new Error('El DOCX no parece válido o está daña…61 tokens truncated…50) throw new Error('No se pudo abrir el contenido del DOCX.');
     const method = view.getUint16(cursor + 10, true);
     const compressedSize = view.getUint32(cursor + 20, true);
     const fileNameLength = view.getUint16(cursor + 28, true);
@@ -548,11 +546,11 @@ function getAsrWorker() {
   return asrWorker;
 }
 
-function transcribeInWorker(file, id) {
+function transcribeInWorker(file, id, options) {
   const worker = getAsrWorker();
   return new Promise((resolve, reject) => {
     asrPending = { id, resolve, reject };
-    worker.postMessage({ type: 'transcribe', id, file });
+    worker.postMessage({ type: 'transcribe', id, file, ...options });
   });
 }
 
@@ -580,7 +578,7 @@ async function transcribeLocally(file) {
   $('engineStatus').textContent = 'Preparando el audio local… El vídeo no se enviará.';
   $('footerStatus').textContent = 'Whisper se está preparando en segundo plano';
   try {
-    const chunks = await transcribeInWorker(file, id);
+    const chunks = await transcribeInWorker(file, id, { model: state.prefs.model || 'small', language: state.prefs.language || 'es' });
     if (id !== state.transcriptionId) return;
     state.words = wordsFromChunks(chunks);
     if (!state.words.length) throw new Error('Whisper no devolvió palabras con tiempos.');
