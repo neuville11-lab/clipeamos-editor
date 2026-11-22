@@ -1,8 +1,5 @@
-Warning: truncated output (original token count: 15061)
-Total output lines: 916
-
 const $ = (id) => document.getElementById(id);
-const keys = { brief: 'cliplab_studio_brief_v2', api: 'cliplab_studio_api_v2', projects: 'cliplab_studio_projects_v2', campaigns: 'cliplab_studio_campaigns_v2', prefs: 'cliplab_studio_prefs_v2', gtaIdea: 'cliplab_gta6_daily_idea', goal: 'cliplab_goal_query_v1', youtube: 'cliplab_youtube_reference_v1' };
+const keys = { brief: 'cliplab_studio_brief_v2', api: 'cliplab_studio_api_v2', projects: 'cliplab_studio_projects_v2', campaigns: 'cliplab_studio_campaigns_v2', prefs: 'cliplab_studio_prefs_v3', gtaIdea: 'cliplab_gta6_daily_idea', goal: 'cliplab_goal_query_v1', youtube: 'cliplab_youtube_reference_v1' };
 const readStore = (key, fallback) => { try { return JSON.parse(localStorage.getItem(key)) ?? fallback; } catch { return fallback; } };
 const state = { file: null, videoUrl: null, api: localStorage.getItem(keys.api) || '', job: null, pollTimer: null, view: 'editor', projectId: null, projects: Array.isArray(readStore(keys.projects, [])) ? readStore(keys.projects, []) : [], campaigns: Array.isArray(readStore(keys.campaigns, [])) ? readStore(keys.campaigns, []) : [], assets: [], words: [], previewRange: null, transcriptionId: 0, prefs: readStore(keys.prefs, { model: 'small', language: 'es', diarization: false, denoise: false, music: true }) };
 let asrWorker = null;
@@ -398,7 +395,12 @@ async function extractDocxText(buffer) {
   for (let offset = bytes.length - 22; offset >= eocdMin; offset -= 1) {
     if (view.getUint32(offset, true) === 0x06054b50) { eocd = offset; break; }
   }
-  if (eocd < 0) throw new Error('El DOCX no parece válido o está daña…61 tokens truncated…50) throw new Error('No se pudo abrir el contenido del DOCX.');
+  if (eocd < 0) throw new Error('El DOCX no parece válido o está dañado.');
+  const entryCount = view.getUint16(eocd + 10, true);
+  let cursor = view.getUint32(eocd + 16, true);
+  let documentEntry = null;
+  for (let index = 0; index < entryCount; index += 1) {
+    if (view.getUint32(cursor, true) !== 0x02014b50) throw new Error('No se pudo abrir el contenido del DOCX.');
     const method = view.getUint16(cursor + 10, true);
     const compressedSize = view.getUint32(cursor + 20, true);
     const fileNameLength = view.getUint16(cursor + 28, true);
@@ -522,7 +524,7 @@ function resetVideo() {
 
 function getAsrWorker() {
   if (asrWorker) return asrWorker;
-  asrWorker = new Worker(new URL('../asr-worker.js', location.href), { type: 'module' });
+  asrWorker = new Worker(new URL('../asr-worker.js?v=asr-small-1', location.href), { type: 'module' });
   asrWorker.onmessage = ({ data }) => {
     if (!asrPending || data.id !== asrPending.id) return;
     if (data.type === 'progress') {
