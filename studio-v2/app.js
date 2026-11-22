@@ -770,7 +770,7 @@ function alignCorrectedWords(originalWords, text) {
   return aligned.sort((a, b) => a.start - b.start);
 }
 
-function applyTranscriptText(restore = false) {
+function applyTranscriptText(restore = false, statusMessage = '') {
   if (!state.words.length) return;
   const priorClipText = state.previewRange
     ? transcriptText(state.words.filter((item) => item.start < state.previewRange.end && item.end > state.previewRange.start))
@@ -784,7 +784,7 @@ function applyTranscriptText(restore = false) {
   if (priorClipText && $('voiceText').value.trim() === priorClipText) $('voiceText').value = nextClipText;
   state.ttsId++;
   invalidateVoiceover();
-  refreshTranscriptEditor(restore ? 'Transcripción original de Whisper restaurada.' : 'Correcciones aplicadas; los tiempos de las palabras reconocidas se conservaron.');
+  refreshTranscriptEditor(statusMessage || (restore ? 'Transcripción original de Whisper restaurada.' : 'Correcciones aplicadas; los tiempos de las palabras reconocidas se conservaron.'));
   syncCaption();
   if ($('goalQuery').value.trim()) suggestLocalMoments();
 }
@@ -828,10 +828,12 @@ async function autoCorrectTranscript() {
       precedingOffset = match.offset;
     }
     editor.value = corrected;
-    $('applyTranscriptCorrections').disabled = corrected.trim() === transcriptText(state.words).trim();
-    $('transcriptStatus').textContent = corrections
-      ? `LanguageTool propone ${corrections} corrección${corrections === 1 ? '' : 'es'}. Revísalas y pulsa «Aplicar correcciones» para sincronizar el texto, los subtítulos y la narración.`
-      : 'LanguageTool no encontró cambios. Puedes seguir corrigiendo el texto manualmente.';
+    if (corrections) {
+      applyTranscriptText(false, `LanguageTool aplicó ${corrections} corrección${corrections === 1 ? '' : 'es'}; subtítulos y tiempos están sincronizados. Puedes revisar el texto o restaurar Whisper.`);
+    } else {
+      $('applyTranscriptCorrections').disabled = corrected.trim() === transcriptText(state.words).trim();
+      $('transcriptStatus').textContent = 'LanguageTool no encontró cambios. Puedes seguir corrigiendo el texto manualmente.';
+    }
   } catch (error) {
     $('transcriptStatus').textContent = error.name === 'AbortError'
       ? 'La revisión tardó demasiado. Inténtalo de nuevo o corrige el texto manualmente.'
