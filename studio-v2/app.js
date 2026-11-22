@@ -1,7 +1,7 @@
 const $ = (id) => document.getElementById(id);
 const keys = { brief: 'cliplab_studio_brief_v2', api: 'cliplab_studio_api_v2', projects: 'cliplab_studio_projects_v2', campaigns: 'cliplab_studio_campaigns_v2', prefs: 'cliplab_studio_prefs_v3', gtaIdea: 'cliplab_gta6_daily_idea', goal: 'cliplab_goal_query_v1', youtube: 'cliplab_youtube_reference_v1' };
 const readStore = (key, fallback) => { try { return JSON.parse(localStorage.getItem(key)) ?? fallback; } catch { return fallback; } };
-const state = { file: null, videoUrl: null, voiceUrl: null, voiceWords: [], audioMode: 'voice', api: localStorage.getItem(keys.api) || '', job: null, pollTimer: null, view: 'editor', projectId: null, projects: Array.isArray(readStore(keys.projects, [])) ? readStore(keys.projects, []) : [], campaigns: Array.isArray(readStore(keys.campaigns, [])) ? readStore(keys.campaigns, []) : [], assets: [], words: [], previewRange: null, transcriptionId: 0, ttsId: 0, prefs: readStore(keys.prefs, { model: 'small', language: 'es', diarization: false, denoise: false, music: true }) };
+const state = { file: null, videoUrl: null, voiceUrl: null, voiceWords: [], audioMode: 'voice', api: localStorage.getItem(keys.api) || '', job: null, pollTimer: null, view: 'editor', projectId: null, projects: Array.isArray(readStore(keys.projects, [])) ? readStore(keys.projects, []) : [], campaigns: Array.isArray(readStore(keys.campaigns, [])) ? readStore(keys.campaigns, []) : [], assets: [], words: [], whisperWords: [], previewRange: null, transcriptionId: 0, ttsId: 0, prefs: readStore(keys.prefs, { model: 'small', language: 'es', diarization: false, denoise: false, music: true }) };
 let asrWorker = null;
 let asrPending = null;
 let ttsWorker = null;
@@ -14,6 +14,11 @@ function updateExportState(message) {
   if (!button) return;
   button.disabled = !state.file || !state.previewRange || !Number.isFinite(state.previewRange.end) || state.previewRange.end <= state.previewRange.start || !window.MediaRecorder || (state.audioMode === 'voice' && !state.voiceUrl);
   if (message) $('exportStatus').textContent = message;
+}
+
+function updatePreviewPlaybackButton() {
+  if (!$('previewPlay')) return;
+  $('previewPlay').disabled = !state.previewRange || !$('previewVideo').videoWidth || (state.audioMode === 'voice' && !state.voiceUrl);
 }
 
 function applyFraming() {
@@ -121,6 +126,7 @@ function refreshAudioMode() {
   $('audioOutputName').textContent = voiceMode ? 'Narración generada' : 'Audio original';
   $('audioOutputDetail').textContent = voiceMode ? 'El audio original quedará silenciado' : 'Se conserva la pista del gameplay';
   $('generateVoice').disabled = Boolean(ttsPending) || !state.previewRange || !$('voiceText').value.trim();
+  updatePreviewPlaybackButton();
   syncCaption();
   updateExportState(voiceMode ? (state.voiceUrl ? 'Narración lista. Se exportará sin el audio original.' : 'Selecciona un clip, revisa el texto y genera una voz antes de exportar.') : 'Se conservará el audio original del vídeo.');
 }
@@ -129,6 +135,7 @@ function invalidateVoiceover() {
   if (state.voiceUrl) URL.revokeObjectURL(state.voiceUrl);
   state.voiceUrl = null; $('voicePreview').removeAttribute('src'); $('voicePreview').hidden = true;
   state.voiceWords = [];
+  updatePreviewPlaybackButton();
   updateExportState(state.audioMode === 'voice' ? 'El texto o la voz cambiaron. Genera la narración de nuevo antes de exportar.' : 'Se conservará el audio original del vídeo.');
 }
 
@@ -155,7 +162,8 @@ async function generateVoiceover() {
     let cursor = 0;
     state.voiceWords = tokens.map((word, index) => { const start = cursor; cursor += duration * weights[index] / totalWeight; return { word, start, end: index === tokens.length - 1 ? duration : cursor }; });
     $('voicePreview').src = state.voiceUrl; $('voicePreview').hidden = false; $('voicePreview').load();
-    $('voiceStatus').textContent = 'Voz generada. Escúchala y edita el texto si quieres cambiarla.';
+    $('voiceStatus').textContent = 'Voz generada. Pulsa «Vista previa» para verla y escucharla sincronizada.';
+    updatePreviewPlaybackButton();
     syncCaption();
     updateExportState('Narración lista. Se exportará sin el audio original.');
   } catch (error) {
@@ -570,14 +578,17 @@ function selectVideo(file) {
   if (!file.type.startsWith('video/')) return toast('Elige un archivo de vídeo válido.');
   state.file = file;
   state.words = [];
+  state.whisperWords = [];
   state.previewRange = null;
   state.ttsId++;
+  $('previewPlay').disabled = true;
   if (state.voiceUrl) URL.revokeObjectURL(state.voiceUrl);
   state.voiceUrl = null;
   state.voiceWords = [];
   $('voicePreview').removeAttribute('src'); $('voicePreview').hidden = true;
   $('voiceText').value = ''; $('generateVoice').disabled = true;
   $('voiceStatus').textContent = 'Transcribe el vídeo y selecciona un clip para preparar la narración.';
+  refreshTranscriptEditor('Whisper está preparando la transcripción…');
   updateExportState('Transcribe el vídeo y selecciona un momento para preparar la exportación.');
   addLibraryFiles([file]);
   if (state.videoUrl) URL.revokeObjectURL(state.videoUrl);
@@ -599,14 +610,17 @@ function selectVideo(file) {
 function resetVideo() {
   state.transcriptionId++;
   state.words = [];
+  state.whisperWords = [];
   state.previewRange = null;
   state.ttsId++;
+  $('previewPlay').disabled = true;
   state.file = null;
   if (state.voiceUrl) URL.revokeObjectURL(state.voiceUrl);
   state.voiceUrl = null;
   state.voiceWords = [];
   $('voicePreview').removeAttribute('src'); $('voicePreview').hidden = true;
   $('voiceText').value = ''; $('generateVoice').disabled = true;
+  refreshTranscriptEditor();
   updateExportState('Sube un vídeo y selecciona un momento para exportar.');
   if (state.videoUrl) URL.revokeObjectURL(state.videoUrl);
   state.videoUrl = null;
@@ -676,6 +690,103 @@ function wordsFromChunks(chunks) {
   return words;
 }
 
+function transcriptText(words) { return words.map((item) => item.word).join(' '); }
+
+function refreshTranscriptEditor(message = 'Puedes corregir el texto y aplicar los cambios.') {
+  const editor = $('transcriptEditor');
+  const text = transcriptText(state.words);
+  editor.value = text;
+  editor.disabled = !state.words.length;
+  $('transcriptWordCount').textContent = `${state.words.length.toLocaleString('es-ES')} palabras`;
+  $('applyTranscriptCorrections').disabled = !state.words.length || editor.value.trim() === text.trim();
+  $('restoreTranscript').disabled = !state.whisperWords.length || transcriptText(state.whisperWords) === text;
+  $('transcriptStatus').textContent = state.words.length ? message : 'Sube un vídeo para generar la transcripción.';
+}
+
+function alignCorrectedWords(originalWords, text) {
+  const original = originalWords || [];
+  const tokens = String(text || '').match(/\S+/g) || [];
+  if (!tokens.length || !original.length) return [];
+  const normalize = (word) => String(word).toLocaleLowerCase('es').normalize('NFD').replace(/[\u0300-\u036f]/g, '').replace(/[^\p{L}\p{N}]/gu, '');
+  const n = original.length, m = tokens.length, pairs = [];
+  if (n * m <= 4_000_000) {
+    const cols = m + 1;
+    const table = new Uint16Array((n + 1) * cols);
+    for (let i = 1; i <= n; i++) for (let j = 1; j <= m; j++) {
+      const cell = i * cols + j;
+      table[cell] = normalize(original[i - 1].word) === normalize(tokens[j - 1])
+        ? table[(i - 1) * cols + j - 1] + 1
+        : Math.max(table[(i - 1) * cols + j], table[i * cols + j - 1]);
+    }
+    let i = n, j = m;
+    while (i > 0 && j > 0) {
+      const cell = i * cols + j;
+      if (normalize(original[i - 1].word) === normalize(tokens[j - 1])) { pairs.push([i - 1, j - 1]); i--; j--; }
+      else if (table[(i - 1) * cols + j] >= table[i * cols + j - 1]) i--;
+      else j--;
+    }
+    pairs.reverse();
+  } else {
+    const positions = new Map();
+    original.forEach((item, index) => { const key = normalize(item.word); if (!positions.has(key)) positions.set(key, []); positions.get(key).push(index); });
+    let cursor = 0;
+    tokens.forEach((token, tokenIndex) => {
+      const list = positions.get(normalize(token)); if (!list) return;
+      let lo = 0, hi = list.length;
+      while (lo < hi) { const mid = (lo + hi) >> 1; if (list[mid] < cursor) lo = mid + 1; else hi = mid; }
+      if (lo < list.length) { pairs.push([list[lo], tokenIndex]); cursor = list[lo] + 1; }
+    });
+  }
+  const aligned = [];
+  const appendGap = (oldStart, oldEnd, newStart, newEnd, previousOld) => {
+    const count = newEnd - newStart;
+    if (!count) return;
+    let start, end;
+    if (oldEnd > oldStart) { start = original[oldStart].start; end = original[oldEnd - 1].end; }
+    else {
+      const left = previousOld >= 0 ? original[previousOld].end : original[0].start;
+      const right = oldEnd < n ? original[oldEnd].start : left;
+      const needed = count * 0.2;
+      if (right - left >= needed) { start = left; end = right; }
+      else if (previousOld >= 0) { start = left; end = left + needed; }
+      else { end = right; start = Math.max(0, end - needed); }
+    }
+    const weights = tokens.slice(newStart, newEnd).map((word) => Math.max(1, normalize(word).length));
+    const total = weights.reduce((sum, weight) => sum + weight, 0) || count;
+    let cursor = start;
+    for (let offset = 0; offset < count; offset++) {
+      const next = offset === count - 1 ? end : cursor + (end - start) * weights[offset] / total;
+      aligned.push({ word: tokens[newStart + offset], start: cursor, end: Math.max(cursor + 0.04, next) }); cursor = next;
+    }
+  };
+  let oldCursor = 0, newCursor = 0, previousOld = -1;
+  for (const [oldIndex, newIndex] of [...pairs, [n, m]]) {
+    appendGap(oldCursor, oldIndex, newCursor, newIndex, previousOld);
+    if (oldIndex < n) aligned.push({ ...original[oldIndex], word: tokens[newIndex] });
+    oldCursor = oldIndex + 1; newCursor = newIndex + 1; previousOld = oldIndex;
+  }
+  return aligned.sort((a, b) => a.start - b.start);
+}
+
+function applyTranscriptText(restore = false) {
+  if (!state.words.length) return;
+  const priorClipText = state.previewRange
+    ? transcriptText(state.words.filter((item) => item.start < state.previewRange.end && item.end > state.previewRange.start))
+    : '';
+  const nextWords = restore ? state.whisperWords.map((item) => ({ ...item })) : alignCorrectedWords(state.words, $('transcriptEditor').value);
+  if (!nextWords.length) return toast('La transcripción no puede quedar vacía.');
+  state.words = nextWords;
+  const nextClipText = state.previewRange
+    ? transcriptText(state.words.filter((item) => item.start < state.previewRange.end && item.end > state.previewRange.start))
+    : '';
+  if (priorClipText && $('voiceText').value.trim() === priorClipText) $('voiceText').value = nextClipText;
+  state.ttsId++;
+  invalidateVoiceover();
+  refreshTranscriptEditor(restore ? 'Transcripción original de Whisper restaurada.' : 'Correcciones aplicadas; los tiempos de las palabras reconocidas se conservaron.');
+  syncCaption();
+  if ($('goalQuery').value.trim()) suggestLocalMoments();
+}
+
 async function transcribeLocally(file) {
   const id = ++state.transcriptionId;
   $('engineStatus').textContent = 'Preparando el audio local… El vídeo no se enviará.';
@@ -685,6 +796,8 @@ async function transcribeLocally(file) {
     if (id !== state.transcriptionId) return;
     state.words = wordsFromChunks(chunks);
     if (!state.words.length) throw new Error('Whisper no devolvió palabras con tiempos.');
+    state.whisperWords = state.words.map((item) => ({ ...item }));
+    refreshTranscriptEditor();
     $('engineStatus').textContent = `Transcripción lista · ${state.words.length.toLocaleString('es-ES')} palabras con tiempos · procesada en este dispositivo.`;
     $('videoMeta').textContent = `${formatSize(file.size)} · ${state.words.length.toLocaleString('es-ES')} palabras transcritas`;
     $('footerStatus').textContent = 'Transcripción local completada · ClipLab busca momentos';
@@ -824,6 +937,8 @@ function showJob(job) {
   if (job.status === 'completed') {
     state.job = null;
     state.words = job.words || [];
+    state.whisperWords = state.words.map((item) => ({ ...item }));
+    refreshTranscriptEditor();
     $('analyzeButton').disabled = false;
     $('analyzeButton').textContent = 'Analizar otra vez';
     renderCandidates(job.candidates || []);
@@ -861,6 +976,9 @@ function renderCandidates(candidates) {
     use.addEventListener('click', () => {
       const preview = state.videoUrl || (candidate.preview_url ? new URL(candidate.preview_url, `${state.api}/`).href : null);
       state.previewRange = { start: Number(candidate.start_time) || 0, end: Number(candidate.end_time) || 0 };
+      $('previewTimeStart').textContent = formatTime(state.previewRange.start);
+      $('previewTimeEnd').textContent = formatTime(state.previewRange.end);
+      $('previewPlay').disabled = false;
       state.ttsId++;
       if (state.voiceUrl) URL.revokeObjectURL(state.voiceUrl);
       state.voiceUrl = null; $('voicePreview').removeAttribute('src'); $('voicePreview').hidden = true;
@@ -901,6 +1019,30 @@ function syncCaption() {
     span.style.textDecoration = from + offset === active ? 'underline' : 'none';
     return span;
   }));
+}
+
+async function togglePreviewPlayback() {
+  const video = $('previewVideo');
+  if (!state.previewRange || !video.videoWidth) return toast('Selecciona un clip para previsualizarlo.');
+  if (!video.paused) { video.pause(); $('voicePreview').pause(); return; }
+  if (state.audioMode === 'voice' && !state.voiceUrl) return toast('Genera primero la voz seleccionada para escucharla junto al vídeo.');
+  if (video.currentTime < state.previewRange.start || video.currentTime >= state.previewRange.end) video.currentTime = state.previewRange.start;
+  if (state.audioMode === 'voice') $('voicePreview').currentTime = Math.max(0, video.currentTime - state.previewRange.start);
+  try {
+    if (state.audioMode === 'voice' && $('voicePreview').readyState < 2) await new Promise((resolve, reject) => {
+      $('voicePreview').addEventListener('canplay', resolve, { once: true });
+      $('voicePreview').addEventListener('error', () => reject(new Error('No se pudo cargar el audio.')), { once: true });
+    });
+    await video.play();
+    if (state.audioMode === 'voice') await $('voicePreview').play();
+    $('previewPlay').textContent = '❚❚ Pausar';
+  } catch (error) { toast(`No se pudo iniciar la previsualización: ${error.message}`); }
+}
+
+function stopPreviewAtRangeEnd() {
+  if (!state.previewRange || $('previewVideo').currentTime < state.previewRange.end) return;
+  $('previewVideo').pause(); $('voicePreview').pause();
+  $('previewPlay').textContent = '▶ Vista previa';
 }
 
 async function pollJob() {
@@ -1013,16 +1155,41 @@ document.addEventListener('DOMContentLoaded', () => {
   ['ideaCategory', 'ideaProblem', 'ideaNotes'].forEach((id) => $(id).addEventListener('change', () => {
     localStorage.setItem(keys.gtaIdea, JSON.stringify({ category: $('ideaCategory').value, question: $('ideaProblem').value, notes: $('ideaNotes').value, date: new Date().toISOString().slice(0, 10) }));
   }));
-  $('previewVideo').addEventListener('loadedmetadata', () => { $('previewSeek').max = $('previewVideo').duration || 0; applyFraming(); if (state.words.length) suggestLocalMoments(); });
-  $('previewVideo').addEventListener('timeupdate', () => { $('previewSeek').value = $('previewVideo').currentTime; syncCaption(); updatePreviewCanvas(); });
+  $('previewVideo').addEventListener('loadedmetadata', () => { $('previewSeek').max = $('previewVideo').duration || 0; applyFraming(); updatePreviewPlaybackButton(); if (state.words.length) suggestLocalMoments(); });
+  $('previewVideo').addEventListener('timeupdate', () => {
+    const video = $('previewVideo');
+    $('previewSeek').value = video.currentTime;
+    $('previewTimeStart').textContent = formatTime(video.currentTime);
+    if (state.audioMode === 'voice' && state.voiceUrl && !video.paused) {
+      const expected = Math.max(0, video.currentTime - (state.previewRange?.start || 0));
+      if (Math.abs($('voicePreview').currentTime - expected) > .3) $('voicePreview').currentTime = expected;
+    }
+    syncCaption(); updatePreviewCanvas(); stopPreviewAtRangeEnd();
+  });
   $('previewVideo').addEventListener('seeked', updatePreviewCanvas);
+  $('previewVideo').addEventListener('pause', () => { $('voicePreview').pause(); $('previewPlay').textContent = '▶ Vista previa'; });
   ['cropTop', 'cropX', 'cropZoom', 'hideCam', 'maskPosition', 'maskStyle', 'maskSize'].forEach((id) => $(id).addEventListener('input', applyFraming));
   $('exportClip').addEventListener('click', exportSelectedClip);
-  $('audioMode').addEventListener('change', refreshAudioMode);
+  $('audioMode').addEventListener('change', () => { $('previewVideo').pause(); $('voicePreview').pause(); refreshAudioMode(); });
   $('generateVoice').addEventListener('click', generateVoiceover);
       $('voiceText').addEventListener('input', () => { state.ttsId++; invalidateVoiceover(); $('generateVoice').disabled = Boolean(ttsPending) || !state.previewRange || !$('voiceText').value.trim(); });
-  $('voiceChoice').addEventListener('change', () => { state.ttsId++; if (state.voiceUrl) { invalidateVoiceover(); $('voiceStatus').textContent = 'Voz cambiada. Genera la narración de nuevo.'; } });
-  $('previewSeek').addEventListener('input', () => { $('previewVideo').currentTime = Number($('previewSeek').value); });
+  $('voiceChoice').addEventListener('change', () => {
+    state.ttsId++;
+    if (state.voiceUrl) invalidateVoiceover();
+    $('voiceStatus').textContent = state.previewRange ? 'Voz seleccionada. Pulsa «Generar voz» y luego «Vista previa».' : 'Selecciona un clip antes de generar la voz.';
+  });
+  $('previewPlay').addEventListener('click', togglePreviewPlayback);
+  $('applyTranscriptCorrections').addEventListener('click', () => applyTranscriptText(false));
+  $('restoreTranscript').addEventListener('click', () => applyTranscriptText(true));
+  $('transcriptEditor').addEventListener('input', () => {
+    const changed = $('transcriptEditor').value.trim() !== transcriptText(state.words).trim();
+    $('applyTranscriptCorrections').disabled = !state.words.length || !changed;
+    $('transcriptStatus').textContent = changed ? 'Hay cambios sin aplicar. Al aplicarlos se conservarán los tiempos de las palabras sin cambios.' : 'Sin cambios pendientes.';
+  });
+  $('previewSeek').addEventListener('input', () => {
+    $('previewVideo').currentTime = Number($('previewSeek').value);
+    if (state.audioMode === 'voice' && state.voiceUrl) $('voicePreview').currentTime = Math.max(0, Number($('previewSeek').value) - (state.previewRange?.start || 0));
+  });
   applyFraming(); refreshAudioMode();
   $('saveProject').addEventListener('click', () => saveCurrentProject());
   $('newProject').addEventListener('click', () => { if (window.confirm('¿Empezar un proyecto nuevo? El borrador actual se conserva en Proyectos.')) { saveCurrentProject(true); resetProject(); toast('Proyecto nuevo listo.'); } });
