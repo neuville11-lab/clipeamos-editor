@@ -23,9 +23,8 @@ function applyFraming() {
   $('cropTopValue').textContent = `${top}%`;
   $('cropXValue').textContent = `${x}%`;
   $('cropZoomValue').textContent = `${Math.round(zoom * 100)}%`;
-  video.style.objectPosition = `${x}% ${Math.min(100, 50 + top * 1.25)}%`;
-  video.style.transform = `scale(${zoom})`;
-  video.style.transformOrigin = `${x}% 50%`;
+  video.style.objectPosition = `${x}% 50%`;
+  video.style.transform = 'none';
   const mask = $('previewMask');
   const enabled = $('hideCam').checked;
   $('maskSettings').hidden = !enabled;
@@ -33,9 +32,10 @@ function applyFraming() {
   mask.className = `preview-mask ${$('maskPosition').value} ${$('maskStyle').value}`;
   mask.style.width = `${$('maskSize').value}%`;
   $('maskSizeValue').textContent = `${$('maskSize').value}%`;
+  updatePreviewCanvas();
 }
 
-function drawExportFrame(ctx, video, width, height) {
+function drawExportFrame(ctx, video, width, height, includeMask = true, includeCaption = true) {
   if (video.readyState < 2 || !video.videoWidth || !video.videoHeight) return;
   const targetAspect = width / height;
   const zoom = Number($('cropZoom').value) / 100;
@@ -54,7 +54,7 @@ function drawExportFrame(ctx, video, width, height) {
   const sy = cutTop + Math.max(0, (visibleHeight - sh) / 2);
   ctx.clearRect(0, 0, width, height);
   ctx.drawImage(video, sx, sy, sw, sh, 0, 0, width, height);
-  if ($('hideCam').checked) {
+  if (includeMask && $('hideCam').checked) {
     const size = Number($('maskSize').value) / 100 * width;
     const mh = size * 9 / 16;
     const position = $('maskPosition').value;
@@ -68,7 +68,7 @@ function drawExportFrame(ctx, video, width, height) {
       ctx.filter = 'none';
     }
   }
-  const active = $('captionWord').textContent.trim();
+  const active = includeCaption ? $('captionWord').textContent.trim() : '';
   if (active) {
     ctx.save(); ctx.font = '800 58px Arial, sans-serif'; ctx.textAlign = 'center'; ctx.textBaseline = 'middle';
     ctx.lineJoin = 'round'; ctx.lineWidth = 9; ctx.strokeStyle = '#101018'; ctx.fillStyle = '#d6ff73';
@@ -78,6 +78,13 @@ function drawExportFrame(ctx, video, width, height) {
     else { const mid = Math.ceil(words.length / 2); ctx.strokeText(words.slice(0, mid).join(' '), width / 2, height * .68, maxWidth); ctx.fillText(words.slice(0, mid).join(' '), width / 2, height * .68, maxWidth); ctx.strokeText(words.slice(mid).join(' '), width / 2, height * .735, maxWidth); ctx.fillText(words.slice(mid).join(' '), width / 2, height * .735, maxWidth); }
     ctx.restore();
   }
+}
+
+function updatePreviewCanvas() {
+  const video = $('previewVideo');
+  const canvas = $('previewCanvas');
+  if (!video || !canvas || video.readyState < 2 || !video.videoWidth) return;
+  drawExportFrame(canvas.getContext('2d'), video, canvas.width, canvas.height, false, false);
 }
 
 async function exportSelectedClip() {
@@ -893,7 +900,8 @@ document.addEventListener('DOMContentLoaded', () => {
     localStorage.setItem(keys.gtaIdea, JSON.stringify({ category: $('ideaCategory').value, question: $('ideaProblem').value, notes: $('ideaNotes').value, date: new Date().toISOString().slice(0, 10) }));
   }));
   $('previewVideo').addEventListener('loadedmetadata', () => { $('previewSeek').max = $('previewVideo').duration || 0; applyFraming(); if (state.words.length) suggestLocalMoments(); });
-  $('previewVideo').addEventListener('timeupdate', () => { $('previewSeek').value = $('previewVideo').currentTime; syncCaption(); });
+  $('previewVideo').addEventListener('timeupdate', () => { $('previewSeek').value = $('previewVideo').currentTime; syncCaption(); updatePreviewCanvas(); });
+  $('previewVideo').addEventListener('seeked', updatePreviewCanvas);
   ['cropTop', 'cropX', 'cropZoom', 'hideCam', 'maskPosition', 'maskStyle', 'maskSize'].forEach((id) => $(id).addEventListener('input', applyFraming));
   $('exportClip').addEventListener('click', exportSelectedClip);
   $('previewSeek').addEventListener('input', () => { $('previewVideo').currentTime = Number($('previewSeek').value); });
