@@ -1,4 +1,4 @@
-let transcriberPromise;
+const transcriberPromises = new Map();
 let currentJobId = null;
 let queue = Promise.resolve();
 
@@ -62,16 +62,15 @@ async function extractMono16k(file) {
   }
 }
 
-async function getTranscriber() {
-  if (!transcriberPromise) {
-    transcriberPromise = (async () => {
+async function getTranscriber(modelName) {
+  const model = ['base', 'small'].includes(modelName) ? modelName : 'small';
+  if (!transcriberPromises.has(model)) {
+    const promise = (async () => {
       const { env, pipeline } = await import(
         'https://cdn.jsdelivr.net/npm/@huggingface/transformers@3.8.1'
       );
       env.allowLocalModels = false;
-      // Base is noticeably more reliable than Tiny for Spanish speech and
-      // names, while remaining practical for local browser inference.
-      return pipeline('automatic-speech-recognition', 'Xenova/whisper-base', {
+      return pipeline('automatic-speech-recognition', `Xenova/whisper-${model}`, {
         dtype: 'q8',
         progress_callback: (info) => {
           if (info.status === 'progress' && Number.isFinite(info.progress)) {
@@ -91,28 +90,30 @@ async function getTranscriber() {
         },
       });
     })();
-    transcriberPromise.catch(() => {
-      transcriberPromise = null;
+    transcriberPromises.set(model, promise);
+    promise.catch(() => {
+      transcriberPromises.delete(model);
     });
   }
-  return transcriberPromise;
+  return transcriberPromises.get(model);
 }
 
-async function runTranscription({ id, file }) {
+async function runTranscription({ id, file, model = 'small', language = 'es' }) {
   currentJobId = id;
   try {
     const audio = await extractMono16k(file);
     reportProgress('Audio listo · cargando Whisper en segundo plano…');
-    const transcriber = await getTranscriber();
+    const transcriber = await getTranscriber(model);
     reportProgress('Whisper está transcribiendo en segundo plano; puedes seguir usando la página…');
-    const result = await transcriber(audio, {
+    const transcriptionOptions = {
       sampling_rate: 16000,
-      language: 'spanish',
       task: 'transcribe',
       return_timestamps: 'word',
       chunk_length_s: 30,
       stride_length_s: 5,
-    });
+    };
+    if (language && language !== 'auto') transcriptionOptions.language = ({ es: 'spanish', en: 'english' })[language] || language;
+    const result = await transcriber(audio, transcriptionOptions);
     self.postMessage({ id, type: 'result', chunks: result.chunks || [] });
   } catch (error) {
     self.postMessage({
