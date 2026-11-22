@@ -699,6 +699,7 @@ function refreshTranscriptEditor(message = 'Puedes corregir el texto y aplicar l
   editor.value = text;
   editor.disabled = !state.words.length;
   $('transcriptWordCount').textContent = `${state.words.length.toLocaleString('es-ES')} palabras`;
+  $('autoCorrectTranscript').disabled = !state.words.length;
   $('applyTranscriptCorrections').disabled = !state.words.length || editor.value.trim() === text.trim();
   $('restoreTranscript').disabled = !state.whisperWords.length || transcriptText(state.whisperWords) === text;
   $('transcriptStatus').textContent = state.words.length ? message : 'Sube un vídeo para generar la transcripción.';
@@ -786,6 +787,59 @@ function applyTranscriptText(restore = false) {
   refreshTranscriptEditor(restore ? 'Transcripción original de Whisper restaurada.' : 'Correcciones aplicadas; los tiempos de las palabras reconocidas se conservaron.');
   syncCaption();
   if ($('goalQuery').value.trim()) suggestLocalMoments();
+}
+
+async function autoCorrectTranscript() {
+  const editor = $('transcriptEditor');
+  const text = editor.value.trim();
+  if (!text) return toast('No hay texto para corregir.');
+  if (!window.confirm('ClipLab enviará únicamente el texto de la transcripción a LanguageTool (languagetool.org) para revisar ortografía y gramática. El vídeo no se enviará. ¿Quieres continuar?')) return;
+  if (new TextEncoder().encode(text).length > 19_000) {
+    $('transcriptStatus').textContent = 'El servicio gratuito admite hasta 20 KB por consulta. Divide la transcripción o corrige este fragmento manualmente.';
+    return;
+  }
+  const button = $('autoCorrectTranscript');
+  button.disabled = true;
+  $('transcriptStatus').textContent = 'Revisando ortografía y gramática con LanguageTool…';
+  const controller = new AbortController();
+  const timeout = setTimeout(() => controller.abort(), 45_000);
+  try {
+    const body = new URLSearchParams({ text, language: 'es' });
+    const response = await fetch('https://api.languagetool.org/v2/check', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/x-www-form-urlencoded;charset=UTF-8' },
+      body,
+      signal: controller.signal,
+    });
+    if (!response.ok) throw new Error(`LanguageTool respondió con el código ${response.status}.`);
+    const result = await response.json();
+    const matches = Array.isArray(result.matches) ? result.matches : [];
+    let corrected = text;
+    let corrections = 0;
+    let precedingOffset = text.length;
+    for (const match of [...matches].sort((a, b) => b.offset - a.offset)) {
+      const replacement = match.replacements?.[0]?.value;
+      if (!replacement || !Number.isInteger(match.offset) || !Number.isInteger(match.length)) continue;
+      if (match.offset + match.length > precedingOffset) continue;
+      const before = corrected.slice(match.offset, match.offset + match.length);
+      if (!before || before === replacement) continue;
+      corrected = corrected.slice(0, match.offset) + replacement + corrected.slice(match.offset + match.length);
+      corrections++;
+      precedingOffset = match.offset;
+    }
+    editor.value = corrected;
+    $('applyTranscriptCorrections').disabled = corrected.trim() === transcriptText(state.words).trim();
+    $('transcriptStatus').textContent = corrections
+      ? `LanguageTool propone ${corrections} corrección${corrections === 1 ? '' : 'es'}. Revísalas y pulsa «Aplicar correcciones» para sincronizar el texto, los subtítulos y la narración.`
+      : 'LanguageTool no encontró cambios. Puedes seguir corrigiendo el texto manualmente.';
+  } catch (error) {
+    $('transcriptStatus').textContent = error.name === 'AbortError'
+      ? 'La revisión tardó demasiado. Inténtalo de nuevo o corrige el texto manualmente.'
+      : `No se pudo conectar con LanguageTool: ${error.message} Revisa tu conexión o corrige el texto manualmente.`;
+  } finally {
+    clearTimeout(timeout);
+    button.disabled = !state.words.length;
+  }
 }
 
 async function transcribeLocally(file) {
@@ -1181,6 +1235,7 @@ document.addEventListener('DOMContentLoaded', () => {
   });
   $('previewPlay').addEventListener('click', togglePreviewPlayback);
   $('applyTranscriptCorrections').addEventListener('click', () => applyTranscriptText(false));
+  $('autoCorrectTranscript').addEventListener('click', autoCorrectTranscript);
   $('restoreTranscript').addEventListener('click', () => applyTranscriptText(true));
   $('transcriptEditor').addEventListener('input', () => {
     const changed = $('transcriptEditor').value.trim() !== transcriptText(state.words).trim();
