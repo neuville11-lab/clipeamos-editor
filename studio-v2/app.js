@@ -312,7 +312,7 @@ function setServiceState(connected, message) {
   target.replaceChildren();
   const dot = document.createElement('span'); dot.className = 'status-dot';
   target.append(dot, document.createTextNode(message));
-  $('footerStatus').textContent = connected ? 'Backend conectado · los archivos solo se envían al iniciar un trabajo' : 'Backend sin conectar · no se ha enviado ningún archivo';
+  $('footerStatus').textContent = connected ? 'Backend opcional conectado · transcripción local disponible' : 'Whisper local · el vídeo se procesa en este dispositivo';
   $('analyzeButton').disabled = !state.file || !state.words.length || Boolean(state.job);
 }
 
